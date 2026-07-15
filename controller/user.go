@@ -38,10 +38,6 @@ var (
 )
 
 func Login(c *gin.Context) {
-	if !common.PasswordLoginEnabled {
-		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
-		return
-	}
 	var loginRequest LoginRequest
 	err := json.NewDecoder(c.Request.Body).Decode(&loginRequest)
 	if err != nil {
@@ -60,6 +56,11 @@ func Login(c *gin.Context) {
 	}
 	err = user.ValidateAndFill()
 	if err != nil {
+		// 即使全局禁用了密码登录，也应返回一致的用户名或密码错误，避免被撞库嗅探哪些是管理员账号
+		if !common.PasswordLoginEnabled {
+			common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
+			return
+		}
 		switch {
 		case errors.Is(err, model.ErrDatabase):
 			common.SysLog(fmt.Sprintf("Login database error for user %s: %v", username, err))
@@ -69,6 +70,12 @@ func Login(c *gin.Context) {
 		default:
 			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
 		}
+		return
+	}
+
+	// 如果全局禁用了密码登录，只有 Role >= RoleAdminUser 的管理员才被允许登录
+	if !common.PasswordLoginEnabled && user.Role < common.RoleAdminUser {
+		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
 		return
 	}
 
