@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -109,8 +110,11 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
       const url = buildGitHubOAuthUrl(status.github_client_id, state)
       window.open(url, '_self')
-    } catch (_error) {
-      toast.error(t('Failed to start GitHub login'))
+    } catch (error) {
+      // 429: global interceptor already showed the rate-limit toast
+      if (!axios.isAxiosError(error) || error.response?.status !== 429) {
+        toast.error(t('Failed to start GitHub login'))
+      }
       if (githubTimeoutRef.current) {
         clearTimeout(githubTimeoutRef.current)
       }
@@ -134,8 +138,11 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
       const url = buildDiscordOAuthUrl(status.discord_client_id, state)
       window.open(url, '_self')
-    } catch (_error) {
-      toast.error(t('Failed to start Discord login'))
+    } catch (error) {
+      // 429: global interceptor already showed the rate-limit toast
+      if (!axios.isAxiosError(error) || error.response?.status !== 429) {
+        toast.error(t('Failed to start Discord login'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -159,8 +166,11 @@ export function useOAuthLogin(status: SystemStatus | null) {
         state
       )
       window.open(url, '_self')
-    } catch (_error) {
-      toast.error(t('Failed to start OIDC login'))
+    } catch (error) {
+      // 429: global interceptor already showed the rate-limit toast
+      if (!axios.isAxiosError(error) || error.response?.status !== 429) {
+        toast.error(t('Failed to start OIDC login'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -180,8 +190,11 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
       const url = buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
       window.open(url, '_self')
-    } catch (_error) {
-      toast.error(t('Failed to start LinuxDO login'))
+    } catch (error) {
+      // 429: global interceptor already showed the rate-limit toast
+      if (!axios.isAxiosError(error) || error.response?.status !== 429) {
+        toast.error(t('Failed to start LinuxDO login'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -214,10 +227,13 @@ export function useOAuthLogin(status: SystemStatus | null) {
       }
 
       window.open(url.toString(), '_self')
-    } catch (_error) {
-      toast.error(
-        t('Failed to start {{provider}} login', { provider: provider.name })
-      )
+    } catch (error) {
+      // 429: global interceptor already showed the rate-limit toast
+      if (!axios.isAxiosError(error) || error.response?.status !== 429) {
+        toast.error(
+          t('Failed to start {{provider}} login', { provider: provider.name })
+        )
+      }
     } finally {
       setIsLoading(false)
     }
