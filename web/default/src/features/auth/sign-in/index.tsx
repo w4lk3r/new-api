@@ -16,10 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Link, useSearch } from '@tanstack/react-router'
+import { Volume2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { RichContent } from '@/components/rich-content'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useStatus } from '@/hooks/use-status'
+import { getNotice } from '@/lib/api'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
@@ -29,6 +34,16 @@ export function SignIn() {
   const { t } = useTranslation()
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
+
+  const { data: noticeResponse } = useQuery({
+    queryKey: ['notice'],
+    queryFn: getNotice,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+
+  const notice = noticeResponse?.success
+    ? (noticeResponse.data || '').trim()
+    : ''
 
   return (
     <AuthLayout>
@@ -52,6 +67,19 @@ export function SignIn() {
               </p>
             )}
         </div>
+
+        {notice && (
+          <Alert className='border-amber-200/50 bg-amber-50/20 dark:border-amber-900/30 dark:bg-amber-950/10 [&>svg]:text-amber-600 [&>svg]:dark:text-amber-400'>
+            <Volume2 className='h-4 w-4' />
+            <AlertDescription className='text-xs leading-relaxed break-words text-amber-800 dark:text-amber-300'>
+              <RichContent
+                breaks
+                content={notice}
+                className='text-xs text-amber-800 dark:text-amber-300'
+              />
+            </AlertDescription>
+          </Alert>
+        )}
 
         <UserAuthForm redirectTo={redirect} />
 
