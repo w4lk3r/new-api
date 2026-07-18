@@ -28,6 +28,9 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  InvitedUser,
+  InvitationRewardRecord,
+  PaginatedData,
 } from './types'
 
 // ============================================================================
@@ -124,6 +127,35 @@ export async function adjustUserQuota(
   payload: ManageUserQuotaPayload
 ): Promise<ApiResponse<Partial<User>>> {
   const res = await api.post('/api/user/manage', payload)
+  return res.data
+}
+
+export async function getInvitedUsers(
+  userId: number,
+  page = 1,
+  pageSize = 20
+): Promise<ApiResponse<PaginatedData<InvitedUser>>> {
+  const res = await api.get(
+    `/api/user/${userId}/invited-users?p=${page}&page_size=${pageSize}`
+  )
+  return res.data
+}
+
+export async function getInvitationRewardRecords(
+  userId: number,
+  page = 1,
+  pageSize = 20
+): Promise<ApiResponse<PaginatedData<InvitationRewardRecord>>> {
+  const res = await api.get(
+    `/api/user/${userId}/invitation-rewards?p=${page}&page_size=${pageSize}`
+  )
+  return res.data
+}
+
+export async function clearInvitationRewardQuota(
+  userId: number
+): Promise<ApiResponse<{ cleared_quota: number }>> {
+  const res = await api.post(`/api/user/${userId}/invitation-rewards/clear`)
   return res.data
 }
 

@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Gift,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -57,6 +58,7 @@ import {
 } from '../constants'
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
+import { InvitationRewardsSheet } from './dialogs/invitation-rewards-sheet'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
 
@@ -72,6 +74,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [invitationRewardsOpen, setInvitationRewardsOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -213,6 +216,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         <DropdownMenuItem
           onSelect={(event) => {
             event.preventDefault()
+            setInvitationRewardsOpen(true)
+          }}
+        >
+          {t('Invitation Rewards')}
+          <DropdownMenuShortcut>
+            <Gift size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
             setSubscriptionsDialogOpen(true)
           }}
         >
@@ -299,6 +314,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         open={subscriptionsDialogOpen}
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
+        onSuccess={triggerRefresh}
+      />
+
+      <InvitationRewardsSheet
+        open={invitationRewardsOpen}
+        onOpenChange={setInvitationRewardsOpen}
+        user={user}
         onSuccess={triggerRefresh}
       />
     </div>

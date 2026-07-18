@@ -328,6 +328,70 @@ func GetAllUsers(c *gin.Context) {
 	return
 }
 
+func GetInvitedUsers(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	users, total, err := model.GetInvitedUsers(userId, pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(users)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetInvitationRewardRecords(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	records, total, err := model.GetInvitationRewardRecords(userId, pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(records)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ClearInvitationRewardQuota(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canManageTargetRole(c.GetInt("role"), user.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		return
+	}
+
+	clearedQuota, err := model.ClearInvitationRewardQuota(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAuditFor(c, userId, "user.invitation_reward_clear", map[string]interface{}{
+		"quota": logger.LogQuota(clearedQuota),
+	})
+	if clearedQuota > 0 {
+		model.RecordLog(userId, model.LogTypeSystem, fmt.Sprintf("管理员已完成邀请奖励提取，清零额度 %s", logger.LogQuota(clearedQuota)))
+	}
+	common.ApiSuccess(c, gin.H{"cleared_quota": clearedQuota})
+}
+
 func SearchUsers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")

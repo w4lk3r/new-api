@@ -131,6 +131,40 @@ export interface ManageUserQuotaPayload {
   value: number
 }
 
+export interface InvitedUser {
+  id: number
+  username: string
+  display_name: string
+  status: number
+  created_at: number
+}
+
+export type InvitationRewardType = 'signup' | 'recharge'
+export type InvitationRewardStatus = 'settled' | 'failed'
+
+export interface InvitationRewardRecord {
+  id: number
+  inviter_id: number
+  invitee_id: number
+  invitee_username?: string
+  type: InvitationRewardType
+  source_id: string
+  base_quota: number
+  rate: number
+  reward_quota: number
+  status: InvitationRewardStatus
+  created_at: number
+  settled_at: number
+  remark?: string
+}
+
+export interface PaginatedData<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
 // ============================================================================
 // Dialog Types
 // ============================================================================

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -138,7 +139,7 @@ func UpdateOption(c *gin.Context) {
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
 	switch option.Key {
-	case "QuotaForInviter", "QuotaForInvitee":
+	case "QuotaForInviter", "QuotaForInvitee", "payment_setting.invite_recharge_reward_rate", "payment_setting.invite_recharge_reward_enabled":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
 			return
@@ -146,6 +147,19 @@ func UpdateOption(c *gin.Context) {
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
+			return
+		}
+	}
+	if option.Key == "payment_setting.invite_recharge_reward_rate" {
+		rate, parseErr := strconv.ParseFloat(strings.TrimSpace(option.Value.(string)), 64)
+		if parseErr != nil || math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || rate > 100 {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+	}
+	if option.Key == "payment_setting.invite_recharge_reward_enabled" {
+		if _, parseErr := strconv.ParseBool(strings.TrimSpace(option.Value.(string))); parseErr != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
 	}
