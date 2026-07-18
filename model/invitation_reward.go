@@ -10,6 +10,7 @@ import (
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -51,19 +52,29 @@ func recordSignupInvitation(inviterId int, inviteeId int, rewardQuota int) error
 
 	sourceId := strconv.Itoa(inviteeId)
 	return DB.Transaction(func(tx *gorm.DB) error {
-		var count int64
-		if err := tx.Model(&InvitationRewardRecord{}).
-			Where("type = ? AND source_id = ?", InvitationRewardTypeSignup, sourceId).
-			Count(&count).Error; err != nil {
-			return err
-		}
-		if count > 0 {
-			return nil
-		}
-
 		var inviter User
 		if err := lockForUpdate(tx).First(&inviter, inviterId).Error; err != nil {
 			return err
+		}
+		if inviter.Status != common.UserStatusEnabled {
+			return nil
+		}
+
+		now := common.GetTimestamp()
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&InvitationRewardRecord{
+			InviterId:   inviterId,
+			InviteeId:   inviteeId,
+			Type:        InvitationRewardTypeSignup,
+			SourceId:    sourceId,
+			RewardQuota: rewardQuota,
+			Status:      InvitationRewardStatusSettled,
+			SettledAt:   now,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
 		}
 		if inviter.AffQuota > common.MaxQuota-rewardQuota ||
 			inviter.AffHistoryQuota > common.MaxQuota-rewardQuota {
@@ -76,17 +87,7 @@ func recordSignupInvitation(inviterId int, inviteeId int, rewardQuota int) error
 		if err := tx.Save(&inviter).Error; err != nil {
 			return err
 		}
-
-		now := common.GetTimestamp()
-		return tx.Create(&InvitationRewardRecord{
-			InviterId:   inviterId,
-			InviteeId:   inviteeId,
-			Type:        InvitationRewardTypeSignup,
-			SourceId:    sourceId,
-			RewardQuota: rewardQuota,
-			Status:      InvitationRewardStatusSettled,
-			SettledAt:   now,
-		}).Error
+		return nil
 	})
 }
 
@@ -107,6 +108,17 @@ func settleRechargeInvitationRewardTx(tx *gorm.DB, topUp *TopUp, creditedQuota i
 		return nil
 	}
 
+	var inviter User
+	if err := lockForUpdate(tx).First(&inviter, invitee.InviterId).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if inviter.Status != common.UserStatusEnabled {
+		return nil
+	}
+
 	rewardDecimal := decimal.NewFromInt(int64(creditedQuota)).
 		Mul(decimal.NewFromFloat(rate)).
 		Div(decimal.NewFromInt(100))
@@ -116,14 +128,6 @@ func settleRechargeInvitationRewardTx(tx *gorm.DB, topUp *TopUp, creditedQuota i
 	}
 	if rewardQuota <= 0 {
 		return nil
-	}
-
-	var inviter User
-	if err := lockForUpdate(tx).First(&inviter, invitee.InviterId).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		return err
 	}
 
 	now := common.GetTimestamp()
@@ -143,7 +147,16 @@ func settleRechargeInvitationRewardTx(tx *gorm.DB, topUp *TopUp, creditedQuota i
 		record.Status = InvitationRewardStatusFailed
 		record.SettledAt = 0
 		record.Remark = "invitation reward quota exceeds storage limit"
-		return tx.Create(&record).Error
+	}
+	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&record)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil
+	}
+	if record.Status == InvitationRewardStatusFailed {
+		return nil
 	}
 
 	if err := tx.Model(&inviter).Updates(map[string]interface{}{
@@ -152,7 +165,7 @@ func settleRechargeInvitationRewardTx(tx *gorm.DB, topUp *TopUp, creditedQuota i
 	}).Error; err != nil {
 		return err
 	}
-	return tx.Create(&record).Error
+	return nil
 }
 
 func GetInvitedUsers(inviterId int, pageInfo *common.PageInfo) ([]*InvitedUser, int64, error) {

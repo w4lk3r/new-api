@@ -384,7 +384,9 @@ func ClearInvitationRewardQuota(c *gin.Context) {
 		return
 	}
 	recordManageAuditFor(c, userId, "user.invitation_reward_clear", map[string]interface{}{
-		"quota": logger.LogQuota(clearedQuota),
+		"before_quota": logger.LogQuota(clearedQuota),
+		"after_quota":  logger.LogQuota(0),
+		"quota":        logger.LogQuota(clearedQuota),
 	})
 	if clearedQuota > 0 {
 		model.RecordLog(userId, model.LogTypeSystem, fmt.Sprintf("管理员已完成邀请奖励提取，清零额度 %s", logger.LogQuota(clearedQuota)))

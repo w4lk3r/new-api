@@ -625,6 +625,8 @@ func (user *User) finalizeInvitationRegistration(inviterId int) {
 	if complianceConfirmed {
 		inviterReward = common.QuotaForInviter
 	}
+	// Registration is already committed before this post-processing step. A
+	// reward failure must not prevent the new user from completing signup.
 	if err := recordSignupInvitation(inviterId, user.Id, inviterReward); err == nil && inviterReward > 0 {
 		RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(inviterReward)))
 	}

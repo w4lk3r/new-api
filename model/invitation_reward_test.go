@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func configureInvitationRewardsForTest(t *testing.T, rate float64) {
@@ -103,6 +104,58 @@ func TestSignupInvitationIsCountedWhenFixedRewardIsZero(t *testing.T) {
 	assert.Equal(t, 1, inviter.AffCount)
 	assert.Equal(t, 0, inviter.AffQuota)
 	assert.Equal(t, 0, inviter.AffHistoryQuota)
+}
+
+func TestInvitationRewardsSkipDisabledInviter(t *testing.T) {
+	truncateTables(t)
+	configureInvitationRewardsForTest(t, 10)
+	originalReward := common.QuotaForInviter
+	common.QuotaForInviter = 75
+	t.Cleanup(func() { common.QuotaForInviter = originalReward })
+
+	inviter := User{Id: 321, Username: "disabled-inviter", AffCode: "invite-321", Status: common.UserStatusDisabled}
+	invitee := User{Id: 322, Username: "disabled-invitee", AffCode: "invite-322", Status: common.UserStatusEnabled, InviterId: inviter.Id}
+	require.NoError(t, DB.Create(&inviter).Error)
+	require.NoError(t, DB.Create(&invitee).Error)
+
+	require.NoError(t, recordSignupInvitation(inviter.Id, invitee.Id, common.QuotaForInviter))
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return settleRechargeInvitationRewardTx(tx, &TopUp{UserId: invitee.Id, TradeNo: "disabled-inviter-topup"}, 1000)
+	}))
+
+	require.NoError(t, DB.First(&inviter, inviter.Id).Error)
+	assert.Equal(t, 0, inviter.AffCount)
+	assert.Equal(t, 0, inviter.AffQuota)
+	assert.Equal(t, 0, inviter.AffHistoryQuota)
+
+	var count int64
+	require.NoError(t, DB.Model(&InvitationRewardRecord{}).Count(&count).Error)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestRechargeInvitationRewardIsIdempotentWithoutTopUpGuard(t *testing.T) {
+	truncateTables(t)
+	configureInvitationRewardsForTest(t, 10)
+
+	inviter := User{Id: 331, Username: "direct-inviter", AffCode: "invite-331", Status: common.UserStatusEnabled}
+	invitee := User{Id: 332, Username: "direct-invitee", AffCode: "invite-332", Status: common.UserStatusEnabled, InviterId: inviter.Id}
+	require.NoError(t, DB.Create(&inviter).Error)
+	require.NoError(t, DB.Create(&invitee).Error)
+	topUp := &TopUp{UserId: invitee.Id, TradeNo: "direct-idempotent-topup"}
+
+	for i := 0; i < 2; i++ {
+		require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+			return settleRechargeInvitationRewardTx(tx, topUp, 1000)
+		}))
+	}
+
+	require.NoError(t, DB.First(&inviter, inviter.Id).Error)
+	assert.Equal(t, 100, inviter.AffQuota)
+	assert.Equal(t, 100, inviter.AffHistoryQuota)
+
+	var count int64
+	require.NoError(t, DB.Model(&InvitationRewardRecord{}).Count(&count).Error)
+	assert.Equal(t, int64(1), count)
 }
 
 func TestClearInvitationRewardQuotaPreservesBalanceAndHistory(t *testing.T) {
