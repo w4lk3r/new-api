@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -43,6 +44,41 @@ type InvitedUser struct {
 	DisplayName string `json:"display_name"`
 	Status      int    `json:"status"`
 	CreatedAt   int64  `json:"created_at"`
+}
+
+// UserInvitedUser is the privacy-preserving view returned to the inviting user.
+// It deliberately omits the real user ID, status and exact registration time.
+type UserInvitedUser struct {
+	Invitee        string `json:"invitee"`
+	RegisteredDate string `json:"registered_date"`
+}
+
+// UserInvitationRewardRecord is the privacy-preserving reward view returned to
+// the inviting user. The raw recharge amount, rate and exact timestamp remain
+// available only to administrators through InvitationRewardRecord.
+type UserInvitationRewardRecord struct {
+	Type        string `json:"type"`
+	Invitee     string `json:"invitee"`
+	RewardQuota int    `json:"reward_quota"`
+	RewardDate  string `json:"reward_date"`
+}
+
+func maskInvitationUsername(username string) string {
+	runes := []rune(username)
+	if len(runes) == 0 {
+		return "-"
+	}
+	if len(runes) <= 2 {
+		return "***"
+	}
+	return string(runes[0]) + "***" + string(runes[len(runes)-1])
+}
+
+func invitationDate(timestamp int64) string {
+	if timestamp <= 0 {
+		return "-"
+	}
+	return time.Unix(timestamp, 0).UTC().Format("2006-01-02")
 }
 
 func recordSignupInvitation(inviterId int, inviteeId int, rewardQuota int) error {
@@ -202,6 +238,65 @@ func GetInvitationRewardRecords(inviterId int, pageInfo *common.PageInfo) ([]*In
 		Offset(pageInfo.GetStartIdx()).
 		Scan(&records).Error; err != nil {
 		return nil, 0, err
+	}
+	return records, total, nil
+}
+
+func GetUserInvitedUsers(inviterId int, pageInfo *common.PageInfo) ([]*UserInvitedUser, int64, error) {
+	query := DB.Model(&User{}).Where("inviter_id = ?", inviterId)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var rows []struct {
+		Username  string
+		CreatedAt int64
+	}
+	if err := query.Select("username", "created_at").Order("id desc").
+		Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	users := make([]*UserInvitedUser, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, &UserInvitedUser{
+			Invitee:        maskInvitationUsername(row.Username),
+			RegisteredDate: invitationDate(row.CreatedAt),
+		})
+	}
+	return users, total, nil
+}
+
+func GetUserInvitationRewardRecords(inviterId int, pageInfo *common.PageInfo) ([]*UserInvitationRewardRecord, int64, error) {
+	query := DB.Model(&InvitationRewardRecord{}).
+		Where("invitation_reward_records.inviter_id = ? AND invitation_reward_records.status = ?", inviterId, InvitationRewardStatusSettled)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var rows []struct {
+		Type            string
+		InviteeUsername string
+		RewardQuota     int
+		CreatedAt       int64
+	}
+	if err := query.Select("invitation_reward_records.type, users.username AS invitee_username, invitation_reward_records.reward_quota, invitation_reward_records.created_at").
+		Joins("LEFT JOIN users ON users.id = invitation_reward_records.invitee_id").
+		Order("invitation_reward_records.id desc").
+		Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	records := make([]*UserInvitationRewardRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, &UserInvitationRewardRecord{
+			Type:        row.Type,
+			Invitee:     maskInvitationUsername(row.InviteeUsername),
+			RewardQuota: row.RewardQuota,
+			RewardDate:  invitationDate(row.CreatedAt),
+		})
 	}
 	return records, total, nil
 }

@@ -158,6 +158,56 @@ func TestRechargeInvitationRewardIsIdempotentWithoutTopUpGuard(t *testing.T) {
 	assert.Equal(t, int64(1), count)
 }
 
+func TestUserInvitationViewsRedactSensitiveDetails(t *testing.T) {
+	truncateTables(t)
+	configureInvitationRewardsForTest(t, 10)
+
+	inviter := User{Id: 341, Username: "privacy-inviter", AffCode: "invite-341", Status: common.UserStatusEnabled}
+	invitee := User{Id: 342, Username: "private-user", AffCode: "invite-342", Status: common.UserStatusEnabled, InviterId: inviter.Id}
+	require.NoError(t, DB.Create(&inviter).Error)
+	require.NoError(t, DB.Create(&invitee).Error)
+	require.NoError(t, recordSignupInvitation(inviter.Id, invitee.Id, 75))
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return settleRechargeInvitationRewardTx(tx, &TopUp{UserId: invitee.Id, TradeNo: "privacy-topup"}, 1000)
+	}))
+
+	pageInfo := &common.PageInfo{Page: 1, PageSize: 20}
+	invitedUsers, invitedTotal, err := GetUserInvitedUsers(inviter.Id, pageInfo)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), invitedTotal)
+	require.Len(t, invitedUsers, 1)
+	assert.Equal(t, "p***r", invitedUsers[0].Invitee)
+	assert.NotEmpty(t, invitedUsers[0].RegisteredDate)
+
+	rewardRecords, rewardTotal, err := GetUserInvitationRewardRecords(inviter.Id, pageInfo)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), rewardTotal)
+	require.Len(t, rewardRecords, 2)
+	for _, record := range rewardRecords {
+		assert.Equal(t, "p***r", record.Invitee)
+		assert.NotEmpty(t, record.RewardDate)
+	}
+}
+
+func TestMaskInvitationUsernameHidesShortUnicodeNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected string
+	}{
+		{name: "", expected: "-"},
+		{name: "a", expected: "***"},
+		{name: "ab", expected: "***"},
+		{name: "甲", expected: "***"},
+		{name: "甲乙", expected: "***"},
+		{name: "abc", expected: "a***c"},
+		{name: "用户名称", expected: "用***称"},
+	}
+
+	for _, test := range tests {
+		assert.Equal(t, test.expected, maskInvitationUsername(test.name), test.name)
+	}
+}
+
 func TestClearInvitationRewardQuotaPreservesBalanceAndHistory(t *testing.T) {
 	truncateTables(t)
 	user := User{

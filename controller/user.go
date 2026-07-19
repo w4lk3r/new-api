@@ -345,6 +345,18 @@ func GetInvitedUsers(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
+func GetSelfInvitedUsers(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	users, total, err := model.GetUserInvitedUsers(c.GetInt("id"), pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(users)
+	common.ApiSuccess(c, pageInfo)
+}
+
 func GetInvitationRewardRecords(c *gin.Context) {
 	userId, err := strconv.Atoi(c.Param("id"))
 	if err != nil || userId <= 0 {
@@ -353,6 +365,18 @@ func GetInvitationRewardRecords(c *gin.Context) {
 	}
 	pageInfo := common.GetPageQuery(c)
 	records, total, err := model.GetInvitationRewardRecords(userId, pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(records)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetSelfInvitationRewardRecords(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	records, total, err := model.GetUserInvitationRewardRecords(c.GetInt("id"), pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return

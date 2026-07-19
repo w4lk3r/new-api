@@ -33,6 +33,7 @@ interface AffiliateRewardsCardProps {
   user: UserWalletData | null
   affiliateLink: string
   onTransfer: () => void
+  onViewDetails: () => void
   complianceConfirmed?: boolean
   loading?: boolean
 }
@@ -41,6 +42,7 @@ export function AffiliateRewardsCard({
   user,
   affiliateLink,
   onTransfer,
+  onViewDetails,
   complianceConfirmed = true,
   loading,
 }: AffiliateRewardsCardProps) {
@@ -98,7 +100,7 @@ export function AffiliateRewardsCard({
           ))}
         </div>
 
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           <Input
             value={affiliateLink}
             readOnly
@@ -112,6 +114,14 @@ export function AffiliateRewardsCard({
             tooltip={t('Copy referral link')}
             aria-label={t('Copy referral link')}
           />
+          <Button
+            variant='outline'
+            onClick={onViewDetails}
+            className='h-9 shrink-0 px-3'
+            size='sm'
+          >
+            {t('View details')}
+          </Button>
           {hasRewards && (
             <Button
               onClick={onTransfer}
