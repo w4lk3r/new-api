@@ -30,6 +30,12 @@ func configureInvitationRewardsForTest(t *testing.T, rate float64) {
 	})
 }
 
+func TestInvitationRewardSQLiteMigrationIsIdempotent(t *testing.T) {
+	require.NoError(t, DB.Migrator().DropTable(&InvitationRewardRecord{}))
+	require.NoError(t, migrateInvitationRewardRecord())
+	require.NoError(t, migrateInvitationRewardRecord())
+}
+
 func TestRechargeWaffoPancakeGrantsInvitationCommissionOnce(t *testing.T) {
 	truncateTables(t)
 	configureInvitationRewardsForTest(t, 10)

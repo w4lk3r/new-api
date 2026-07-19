@@ -260,11 +260,27 @@ func InitLogDB() (err error) {
 	return err
 }
 
+func migrateInvitationRewardRecord() error {
+	// glebarez/sqlite v1.9.0 parses decimal(10,6) as decimal(10) while
+	// inspecting existing columns. That makes AutoMigrate try to rebuild this
+	// table on every SQLite startup and fail with "unbalanced brackets".
+	// Create the table when needed, but avoid the broken repeated comparison on
+	// existing SQLite installations. MySQL and PostgreSQL keep the normal
+	// AutoMigrate behavior for future schema changes.
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) && DB.Migrator().HasTable(&InvitationRewardRecord{}) {
+		return nil
+	}
+	return DB.AutoMigrate(&InvitationRewardRecord{})
+}
+
 func migrateDB() error {
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
 	if err := migrateTokenModelLimitsToText(); err != nil {
+		return err
+	}
+	if err := migrateInvitationRewardRecord(); err != nil {
 		return err
 	}
 
@@ -279,7 +295,6 @@ func migrateDB() error {
 		&Log{},
 		&Midjourney{},
 		&TopUp{},
-		&InvitationRewardRecord{},
 		&QuotaData{},
 		&Task{},
 		&Model{},
@@ -317,6 +332,9 @@ func migrateDB() error {
 }
 
 func migrateDBFast() error {
+	if err := migrateInvitationRewardRecord(); err != nil {
+		return err
+	}
 
 	var wg sync.WaitGroup
 
@@ -334,7 +352,6 @@ func migrateDBFast() error {
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
-		{&InvitationRewardRecord{}, "InvitationRewardRecord"},
 		{&QuotaData{}, "QuotaData"},
 		{&Task{}, "Task"},
 		{&Model{}, "Model"},
