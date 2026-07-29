@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -517,6 +518,14 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 			if v, ok := keyMap["account_id"]; !ok || v == nil || strings.TrimSpace(fmt.Sprintf("%v", v)) == "" {
 				return fmt.Errorf("Codex key JSON must include account_id")
 			}
+		}
+	}
+
+	if channel.Type == constant.ChannelTypeLingjingVideo {
+		baseURL := strings.TrimSpace(channel.GetBaseURL())
+		parsedURL, err := url.Parse(baseURL)
+		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" || (parsedURL.Path != "" && parsedURL.Path != "/") || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
+			return fmt.Errorf("LingjingVideo Base URL must be an origin such as https://example.com")
 		}
 	}
 

@@ -24,6 +24,16 @@ func SetVideoRouter(router *gin.Engine) {
 		videoV1Router.GET("/video/generations/:task_id", controller.RelayTaskFetch)
 		videoV1Router.POST("/videos/:video_id/remix", controller.RelayTask)
 	}
+
+	lingjingV1Router := router.Group("/v1/lingjing")
+	lingjingV1Router.Use(middleware.RouteTag("relay"))
+	lingjingV1Router.Use(middleware.TokenAuth(), middleware.Distribute())
+	{
+		lingjingV1Router.POST("/uploads", controller.LingjingVideoUpload)
+		lingjingV1Router.POST("/videos", controller.RelayTask)
+		lingjingV1Router.GET("/videos/:task_id", controller.LingjingVideoFetch)
+		lingjingV1Router.GET("/videos/:task_id/download", controller.LingjingVideoDownload)
+	}
 	// openai compatible API video routes
 	// docs: https://platform.openai.com/docs/api-reference/videos/create
 	{

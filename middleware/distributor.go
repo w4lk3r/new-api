@@ -160,6 +160,10 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
+		if channel != nil && !channelSupportsRequestPath(channel, c.Request.URL.Path, modelRequest.Model) {
+			abortWithOpenAiMessage(c, http.StatusBadRequest, "selected channel does not support this request path")
+			return
+		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
@@ -170,10 +174,13 @@ func Distribute() func(c *gin.Context) {
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
-// Only Advanced Custom (type 58) channels are path-checked; all other channel types
-// always pass. A type-58 channel is usable only when one of its routes matches.
+// LingjingVideo is isolated to its native prefix. Advanced Custom is usable only
+// when one of its configured routes matches.
 func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
 	if channel == nil {
+		return false
+	}
+	if !constant.IsChannelTypeAllowedForPath(channel.Type, requestPath) {
 		return false
 	}
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
@@ -253,7 +260,26 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	var modelRequest ModelRequest
 	shouldSelectChannel := true
 	var err error
-	if strings.Contains(c.Request.URL.Path, "/mj/") {
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/lingjing/") {
+		c.Set("platform", string(constant.TaskPlatformLingjingVideo))
+		switch {
+		case c.Request.Method == http.MethodPost && c.Request.URL.Path == "/v1/lingjing/uploads":
+			modelRequest.Model = common.GetStringIfEmpty(c.Query("model"), "lingjing-video-v1")
+		case c.Request.Method == http.MethodPost && c.Request.URL.Path == "/v1/lingjing/videos":
+			req, requestErr := getModelFromRequest(c)
+			if requestErr != nil {
+				return nil, false, requestErr
+			}
+			modelRequest.Model = req.Model
+			c.Set("relay_mode", relayconstant.RelayModeVideoSubmit)
+		case c.Request.Method == http.MethodGet:
+			shouldSelectChannel = false
+			modelRequest.Model = getTaskOriginModelName(c)
+			c.Set("relay_mode", relayconstant.RelayModeVideoFetchByID)
+		default:
+			return nil, false, fmt.Errorf("unsupported Lingjing video operation")
+		}
+	} else if strings.Contains(c.Request.URL.Path, "/mj/") {
 		relayMode := relayconstant.Path2RelayModeMidjourney(c.Request.URL.Path)
 		if relayMode == relayconstant.RelayModeMidjourneyTaskFetch ||
 			relayMode == relayconstant.RelayModeMidjourneyTaskFetchByCondition ||

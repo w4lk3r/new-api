@@ -57,6 +57,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'Jimeng',
   'JustSong',
   'LingYiWanWu',
+  'LingjingVideo',
   'LinuxDO',
   'MjProxy',
   'MjProxyPlus',
@@ -221,16 +222,25 @@ function isLikelyUntranslated({ locale, baseValue, value }) {
   ) {
     return false
   }
-  if (s.length < 6) return false
-  if (!/[A-Za-z]{3,}/.test(s)) return false
+  if (s.length < 6) {
+    return false
+  }
+  if (!/[A-Za-z]{3,}/.test(s)) {
+    return false
+  }
 
   // For locales with non-latin scripts, equality with EN is a strong signal.
-  if (locale === 'ja' || locale === 'zh') return true
-  if (locale === 'ru') return true
+  if (locale === 'ja' || locale === 'zh') {
+    return true
+  }
+  if (locale === 'ru') {
+    return true
+  }
 
   // For fr/vi: still useful but noisier; keep it conservative.
-  if (locale === 'fr' || locale === 'vi')
+  if (locale === 'fr' || locale === 'vi') {
     return /\b(the|and|or|to|with|please)\b/i.test(s)
+  }
 
   return false
 }
