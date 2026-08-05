@@ -37,6 +37,7 @@ export type ChannelInfo = z.infer<typeof channelInfoSchema>
 export const channelSchema = z.object({
   id: z.number(),
   type: z.number(),
+  adapter_key: z.string().default(''),
   key: z.string(),
   openai_organization: z.string().nullish(),
   test_model: z.string().nullish(),

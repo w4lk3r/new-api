@@ -77,8 +77,14 @@ export const CHANNEL_TYPES = {
   56: 'Replicate',
   57: 'ChatGPT Subscription (Codex)',
   58: 'Advanced Custom',
-  59: 'LingjingVideo',
+  59: 'Native Video',
 } as const
+
+export const CHANNEL_TYPE_NATIVE_VIDEO = 59
+
+export const NATIVE_VIDEO_ADAPTER_OPTIONS = [
+  { value: 'lingjing', label: 'LingjingVideo' },
+] as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15, 46,

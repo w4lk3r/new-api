@@ -117,7 +117,19 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	summary.UnfinishedTasks = len(allTasks)
 	platformTask := make(map[constant.TaskPlatform][]*model.Task)
 	for _, t := range allTasks {
-		platformTask[t.Platform] = append(platformTask[t.Platform], t)
+		platform := t.Platform
+		// The startup migration normally rewrites verified legacy Lingjing
+		// tasks to the stable adapter key. Keep a safe read fallback for an
+		// in-flight deployment: only a native-video channel with the Lingjing
+		// adapter may be treated as the old numeric platform.
+		if platform == constant.LegacyTaskPlatformLingjingVideo {
+			if ch, err := model.CacheGetChannel(t.ChannelId); err == nil &&
+				ch.Type == constant.ChannelTypeNativeVideo &&
+				ch.GetNativeVideoAdapterKey() == constant.NativeVideoAdapterLingjing {
+				platform = constant.TaskPlatformLingjingVideo
+			}
+		}
+		platformTask[platform] = append(platformTask[platform], t)
 	}
 
 	totalPlatforms := len(platformTask)

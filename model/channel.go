@@ -23,6 +23,7 @@ import (
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
+	AdapterKey         string  `json:"adapter_key" gorm:"type:varchar(64);index"`
 	Key                string  `json:"key" gorm:"not null"`
 	OpenAIOrganization *string `json:"openai_organization"`
 	TestModel          *string `json:"test_model"`
@@ -497,6 +498,20 @@ func (channel *Channel) GetBaseURL() string {
 		url = constant.ChannelBaseURLs[channel.Type]
 	}
 	return url
+}
+
+// GetNativeVideoAdapterKey returns the stable protocol identity of a native
+// video channel. Empty adapter keys are legacy Lingjing rows created before
+// adapter_key existed; retaining this fallback keeps those rows usable until
+// the database migration persists the explicit value.
+func (channel *Channel) GetNativeVideoAdapterKey() string {
+	if channel == nil || channel.Type != constant.ChannelTypeNativeVideo {
+		return ""
+	}
+	if adapterKey := strings.TrimSpace(channel.AdapterKey); adapterKey != "" {
+		return adapterKey
+	}
+	return constant.NativeVideoAdapterLingjing
 }
 
 func (channel *Channel) GetModelMapping() string {

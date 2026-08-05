@@ -54,6 +54,12 @@ const MODELS_SECTIONS = [
               settings['global.chat_completions_to_responses_policy'],
               '{}'
             ),
+            native_video_default_model:
+              settings['global.native_video_default_model'],
+            native_video_group_default_models: formatJsonForEditor(
+              settings['global.native_video_group_default_models'],
+              '{}'
+            ),
           },
           general_setting: {
             ping_interval_enabled:

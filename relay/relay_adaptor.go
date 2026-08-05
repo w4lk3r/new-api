@@ -2,8 +2,11 @@ package relay
 
 import (
 	"strconv"
+	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/ali"
@@ -129,14 +132,79 @@ func GetAdaptor(apiType int) channel.Adaptor {
 }
 
 func GetTaskPlatform(c *gin.Context) constant.TaskPlatform {
+	if adapterKey := common.GetContextKeyString(c, constant.ContextKeyChannelNativeVideoAdapter); adapterKey != "" {
+		return constant.TaskPlatform(adapterKey)
+	}
+	if platform := strings.TrimSpace(c.GetString("platform")); platform != "" {
+		return constant.TaskPlatform(platform)
+	}
 	channelType := c.GetInt("channel_type")
 	if channelType > 0 {
 		return constant.TaskPlatform(strconv.Itoa(channelType))
 	}
-	return constant.TaskPlatform(c.GetString("platform"))
+	return ""
+}
+
+// GetNativeVideoAdaptor resolves a stable protocol key to its implementation.
+// Newly created tasks always persist the adapter key such as "lingjing".
+func GetNativeVideoAdaptor(adapterKey string) channel.NativeVideoAdaptor {
+	switch strings.TrimSpace(adapterKey) {
+	case constant.NativeVideoAdapterLingjing:
+		return &lingjing.TaskAdaptor{}
+	default:
+		return nil
+	}
+}
+
+// GetNativeVideoAdaptorForTask resolves an adapter for an already-created
+// task. The legacy numeric platform is accepted only after the task's channel
+// proves that it is the original Lingjing native-video channel; this prevents
+// an unrelated historical type-59 task from being sent to the Lingjing API.
+func GetNativeVideoAdaptorForTask(platform constant.TaskPlatform, selectedChannel *model.Channel) channel.NativeVideoAdaptor {
+	if selectedChannel == nil || selectedChannel.Type != constant.ChannelTypeNativeVideo {
+		return nil
+	}
+	adapterKey := strings.TrimSpace(string(platform))
+	if platform == constant.LegacyTaskPlatformLingjingVideo {
+		if selectedChannel.GetNativeVideoAdapterKey() != constant.NativeVideoAdapterLingjing {
+			return nil
+		}
+		adapterKey = constant.NativeVideoAdapterLingjing
+	}
+	adaptor := GetNativeVideoAdaptor(adapterKey)
+	if adaptor == nil || selectedChannel.GetNativeVideoAdapterKey() != adaptor.AdapterKey() {
+		return nil
+	}
+	return adaptor
+}
+
+// NativeVideoChannelSupportsCreate is used by channel selection and retries to
+// remove native-video channels whose protocol cannot accept the raw request.
+// It also pins provider-specific route namespaces to their adapter key.
+func NativeVideoChannelSupportsCreate(c *gin.Context, selectedChannel *model.Channel) bool {
+	if selectedChannel == nil {
+		return false
+	}
+	if selectedChannel.Type != constant.ChannelTypeNativeVideo {
+		return true
+	}
+	adaptor := GetNativeVideoAdaptor(selectedChannel.GetNativeVideoAdapterKey())
+	if adaptor == nil {
+		return false
+	}
+	if requiredAdapter := constant.NativeVideoAdapterKeyForPath(c.Request.URL.Path); requiredAdapter != "" && adaptor.AdapterKey() != requiredAdapter {
+		return false
+	}
+	if constant.IsNativeVideoCreatePath(c.Request.URL.Path) {
+		return adaptor.SupportsCreateRequest(c)
+	}
+	return true
 }
 
 func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
+	if nativeVideoAdaptor := GetNativeVideoAdaptor(string(platform)); nativeVideoAdaptor != nil {
+		return nativeVideoAdaptor
+	}
 	switch platform {
 	//case constant.APITypeAIProxyLibrary:
 	//	return &aiproxy.Adaptor{}
@@ -163,8 +231,6 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &taskGemini.TaskAdaptor{}
 		case constant.ChannelTypeMiniMax:
 			return &hailuo.TaskAdaptor{}
-		case constant.ChannelTypeLingjingVideo:
-			return &lingjing.TaskAdaptor{}
 		}
 	}
 	return nil

@@ -22,6 +22,9 @@ func TestLingjingVideoRoutesRequireTokenAuthentication(t *testing.T) {
 		{method: http.MethodPost, path: "/v1/lingjing/videos"},
 		{method: http.MethodGet, path: "/v1/lingjing/videos/task_public"},
 		{method: http.MethodGet, path: "/v1/lingjing/videos/task_public/download"},
+		{method: http.MethodPost, path: "/v1/native-video/generations"},
+		{method: http.MethodGet, path: "/v1/native-video/tasks/task_public"},
+		{method: http.MethodGet, path: "/v1/native-video/tasks/task_public/download"},
 	}
 
 	for _, test := range tests {

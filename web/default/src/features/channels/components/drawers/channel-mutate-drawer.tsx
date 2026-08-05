@@ -138,12 +138,14 @@ import {
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
+  CHANNEL_TYPE_NATIVE_VIDEO,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  NATIVE_VIDEO_ADAPTER_OPTIONS,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -2012,6 +2014,59 @@ export function ChannelMutateDrawer({
                             )}
                           />
                         </div>
+
+                        {currentType === CHANNEL_TYPE_NATIVE_VIDEO && (
+                          <fieldset
+                            disabled={sensitiveLocked}
+                            className='min-w-0 disabled:opacity-60'
+                          >
+                            <FormField
+                              control={form.control}
+                              name='adapter_key'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('Native Video Adapter *')}
+                                  </FormLabel>
+                                  <Select
+                                    value={field.value || 'lingjing'}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue
+                                          placeholder={t(
+                                            'Select native video adapter'
+                                          )}
+                                        />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectGroup>
+                                        {NATIVE_VIDEO_ADAPTER_OPTIONS.map(
+                                          (option) => (
+                                            <SelectItem
+                                              key={option.value}
+                                              value={option.value}
+                                            >
+                                              {t(option.label)}
+                                            </SelectItem>
+                                          )
+                                        )}
+                                      </SelectGroup>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {t(
+                                      'Select the upstream protocol used by this native video channel.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </fieldset>
+                        )}
 
                         {!isEditing && (
                           <FormField

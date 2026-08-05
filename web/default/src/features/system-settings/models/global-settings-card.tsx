@@ -76,6 +76,14 @@ const chatToResponsesPolicyAllChannelsExample = JSON.stringify(
   2
 )
 
+const nativeVideoGroupDefaultsExample = JSON.stringify(
+  {
+    premium: 'video-premium-15s',
+  },
+  null,
+  2
+)
+
 const jsonString = z.string().refine((value) => {
   const trimmed = value.trim()
   if (!trimmed) return true
@@ -87,11 +95,31 @@ const jsonString = z.string().refine((value) => {
   }
 }, 'Invalid JSON format')
 
+const jsonStringMap = z.string().refine((value) => {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.values(parsed as Record<string, unknown>).every(
+        (model) => typeof model === 'string'
+      )
+    )
+  } catch {
+    return false
+  }
+}, 'Invalid JSON format')
+
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
+    native_video_default_model: z.string(),
+    native_video_group_default_models: jsonStringMap,
   }),
   general_setting: z.object({
     ping_interval_enabled: z.boolean(),
@@ -106,6 +134,8 @@ type FlatGlobalModelSettings = {
   'global.pass_through_request_enabled': boolean
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
+  'global.native_video_default_model': string
+  'global.native_video_group_default_models': string
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_interval_seconds': number
 }
@@ -121,6 +151,12 @@ const flattenGlobalValues = (
   ),
   'global.chat_completions_to_responses_policy': normalizeJsonText(
     values.global.chat_completions_to_responses_policy,
+    '{}'
+  ),
+  'global.native_video_default_model':
+    values.global.native_video_default_model.trim(),
+  'global.native_video_group_default_models': normalizeJsonText(
+    values.global.native_video_group_default_models,
     '{}'
   ),
   'general_setting.ping_interval_enabled':
@@ -161,6 +197,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
     field:
       | 'global.thinking_model_blacklist'
       | 'global.chat_completions_to_responses_policy'
+      | 'global.native_video_group_default_models'
   ) => {
     const raw = form.getValues(field)
     if (!raw || !raw.trim()) return
@@ -261,6 +298,70 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               </FormItem>
             )}
           />
+
+          <Separator />
+
+          <div className='space-y-4'>
+            <FormField
+              control={form.control}
+              name='global.native_video_default_model'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Native Video Default Model')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={t('e.g., video-standard-15s')}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Used when /v1/native-video/generations omits model or uses video-default.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='global.native_video_group_default_models'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Native Video Group Defaults')}</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={4}
+                      placeholder={`${t('Example:')}\n${nativeVideoGroupDefaultsExample}`}
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON object mapping group names to default native video models.'
+                    )}
+                  </FormDescription>
+                  <div className='flex flex-wrap gap-2'>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={() =>
+                        formatJsonField(
+                          'global.native_video_group_default_models'
+                        )
+                      }
+                    >
+                      {t('Format JSON')}
+                    </Button>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <Separator />
 

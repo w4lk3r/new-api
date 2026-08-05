@@ -171,6 +171,7 @@ const EditChannelModal = (props) => {
   const originInputs = {
     name: '',
     type: 1,
+    adapter_key: 'lingjing',
     key: '',
     openai_organization: '',
     max_input_tokens: 0,
@@ -971,6 +972,9 @@ const EditChannelModal = (props) => {
       ) {
         data.base_url = 'https://ark.cn-beijing.volces.com';
       }
+      if (data.type === 59 && !data.adapter_key) {
+        data.adapter_key = 'lingjing';
+      }
 
       initialBaseUrlRef.current = data.base_url || '';
       setInputs(data);
@@ -1737,6 +1741,13 @@ const EditChannelModal = (props) => {
     }
     if (localInputs.type === 18 && localInputs.other === '') {
       localInputs.other = 'v2.1';
+    }
+    if (localInputs.type === 59) {
+      localInputs.adapter_key = String(
+        localInputs.adapter_key || 'lingjing',
+      ).trim();
+    } else {
+      delete localInputs.adapter_key;
     }
 
     // 生成渠道额外设置JSON
@@ -2624,6 +2635,20 @@ const EditChannelModal = (props) => {
                       onChange={(value) => handleInputChange('type', value)}
                       disabled={isIonetLocked}
                     />
+
+                    {inputs.type === 59 && (
+                      <Form.Input
+                        field='adapter_key'
+                        label='adapter_key'
+                        placeholder='lingjing'
+                        rules={[{ required: true }]}
+                        showClear
+                        onChange={(value) =>
+                          handleInputChange('adapter_key', value)
+                        }
+                        disabled={isIonetLocked}
+                      />
+                    )}
 
                     {inputs.type === 57 && (
                       <Banner

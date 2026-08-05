@@ -87,11 +87,11 @@ func TestLingjingVideoUploadForwardsMultipartAndChannelKey(t *testing.T) {
 
 func TestValidateLingjingChannelRequiresOriginBaseURL(t *testing.T) {
 	validBaseURL := "https://example.com"
-	valid := &model.Channel{Type: constant.ChannelTypeLingjingVideo, Key: "key", BaseURL: &validBaseURL, Models: "lingjing-video-v1"}
+	valid := &model.Channel{Type: constant.ChannelTypeNativeVideo, AdapterKey: constant.NativeVideoAdapterLingjing, Key: "key", BaseURL: &validBaseURL, Models: "lingjing-video-v1"}
 	require.NoError(t, validateChannel(valid, true))
 
-	for _, invalidBaseURL := range []string{"", "example.com", "https://example.com/api/open/v1", "https://example.com?key=value"} {
-		channel := &model.Channel{Type: constant.ChannelTypeLingjingVideo, Key: "key", BaseURL: &invalidBaseURL, Models: "lingjing-video-v1"}
+	for _, invalidBaseURL := range []string{"", "example.com", "ftp://example.com", "https://user:pass@example.com", "https://example.com/api/open/v1", "https://example.com?key=value"} {
+		channel := &model.Channel{Type: constant.ChannelTypeNativeVideo, AdapterKey: constant.NativeVideoAdapterLingjing, Key: "key", BaseURL: &invalidBaseURL, Models: "lingjing-video-v1"}
 		require.Error(t, validateChannel(channel, true))
 	}
 }
@@ -141,6 +141,28 @@ func TestLingjingVideoFetchReturnsNativeStatusWithPublicTaskID(t *testing.T) {
 	assert.JSONEq(t, `{"task_id":"task_public","data":{"task_id":"task_public","status":"processing","progress":42}}`, recorder.Body.String())
 }
 
+func TestNativeVideoGenericFetchUsesTaskPlatform(t *testing.T) {
+	db := setupLingjingControllerTestDB(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/open/v1/videos/upstream-task", r.URL.Path)
+		assert.Equal(t, "Bearer task-specific-key", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"task_id":"upstream-task","status":"processing"}`))
+	}))
+	defer upstream.Close()
+	seedLingjingChannelAndTask(t, db, upstream.URL)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/native-video/tasks/task_public", nil)
+	c.Params = gin.Params{{Key: "task_id", Value: "task_public"}}
+	c.Set("id", 1)
+	NativeVideoFetch(c)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"task_id":"task_public","status":"processing"}`, recorder.Body.String())
+}
+
 func TestLingjingVideoDownloadStreamsMP4AndPreservesRedirect(t *testing.T) {
 	t.Run("mp4", func(t *testing.T) {
 		db := setupLingjingControllerTestDB(t)
@@ -179,13 +201,14 @@ func TestLingjingVideoDownloadStreamsMP4AndPreservesRedirect(t *testing.T) {
 func seedLingjingChannelAndTask(t *testing.T, db *gorm.DB, baseURL string) *model.Channel {
 	t.Helper()
 	channel := &model.Channel{
-		Type:    constant.ChannelTypeLingjingVideo,
-		Key:     "channel-key",
-		Status:  common.ChannelStatusEnabled,
-		Name:    "lingjing-test",
-		BaseURL: &baseURL,
-		Models:  "lingjing-video-v1",
-		Group:   "default",
+		Type:       constant.ChannelTypeNativeVideo,
+		AdapterKey: constant.NativeVideoAdapterLingjing,
+		Key:        "channel-key",
+		Status:     common.ChannelStatusEnabled,
+		Name:       "lingjing-test",
+		BaseURL:    &baseURL,
+		Models:     "lingjing-video-v1",
+		Group:      "default",
 	}
 	require.NoError(t, db.Create(channel).Error)
 	task := &model.Task{

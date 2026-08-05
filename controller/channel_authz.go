@@ -6,6 +6,9 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 	if _, ok := requestData["type"]; ok && channel.Type != origin.Type {
 		return true
 	}
+	if _, ok := requestData["adapter_key"]; ok && channel.AdapterKey != origin.AdapterKey {
+		return true
+	}
 	if _, ok := requestData["key"]; ok && channel.Key != "" && channel.Key != origin.Key {
 		return true
 	}
@@ -62,6 +65,7 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 // used to exclude them from the fail-closed scan for unknown fields.
 var channelSensitiveFields = map[string]struct{}{
 	"type":                {},
+	"adapter_key":         {},
 	"key":                 {},
 	"base_url":            {},
 	"openai_organization": {},

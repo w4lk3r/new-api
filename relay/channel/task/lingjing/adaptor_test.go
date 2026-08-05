@@ -37,6 +37,22 @@ func TestValidateRequestAndEstimateBilling(t *testing.T) {
 	assert.Equal(t, map[string]float64{"seconds": 15}, adaptor.EstimateBilling(c, info))
 }
 
+func TestValidateGenericNativeVideoCreateRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, body := range []string{
+		`{"model":"video-standard-15s","duration":15,"prompt":"sunrise"}`,
+		`{"duration":15,"prompt":"sunrise"}`,
+	} {
+		c := newCreateContext(body)
+		c.Request.URL.Path = "/v1/native-video/generations"
+		adaptor := &TaskAdaptor{}
+
+		require.Nil(t, adaptor.ValidateRequestAndSetAction(c, &relaycommon.RelayInfo{}))
+		assert.True(t, adaptor.SupportsCreateRequest(c))
+		assert.Equal(t, constant.NativeVideoAdapterLingjing, adaptor.AdapterKey())
+	}
+}
+
 func TestValidateRequestRejectsUnsupportedDuration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, body := range []string{

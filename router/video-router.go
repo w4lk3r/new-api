@@ -34,6 +34,18 @@ func SetVideoRouter(router *gin.Engine) {
 		lingjingV1Router.GET("/videos/:task_id", controller.LingjingVideoFetch)
 		lingjingV1Router.GET("/videos/:task_id/download", controller.LingjingVideoDownload)
 	}
+
+	// Model-driven native-video entry points. They share the same task, billing,
+	// ownership, polling, and streaming implementation as provider-specific
+	// routes while keeping clear of the built-in OpenAI/Sora video namespace.
+	nativeVideoV1Router := router.Group("/v1/native-video")
+	nativeVideoV1Router.Use(middleware.RouteTag("relay"))
+	nativeVideoV1Router.Use(middleware.TokenAuth(), middleware.Distribute())
+	{
+		nativeVideoV1Router.POST("/generations", controller.RelayTask)
+		nativeVideoV1Router.GET("/tasks/:task_id", controller.NativeVideoFetch)
+		nativeVideoV1Router.GET("/tasks/:task_id/download", controller.NativeVideoDownload)
+	}
 	// openai compatible API video routes
 	// docs: https://platform.openai.com/docs/api-reference/videos/create
 	{

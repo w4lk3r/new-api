@@ -3,9 +3,13 @@ package constant
 type TaskPlatform string
 
 const (
-	TaskPlatformSuno          TaskPlatform = "suno"
-	TaskPlatformMidjourney                 = "mj"
-	TaskPlatformLingjingVideo              = "59"
+	TaskPlatformSuno       TaskPlatform = "suno"
+	TaskPlatformMidjourney              = "mj"
+	// Task platforms are protocol identifiers, not channel-type numbers. This
+	// keeps existing tasks routable when a private deployment later adds more
+	// native-video providers or reconciles channel type numbers with upstream.
+	TaskPlatformLingjingVideo       TaskPlatform = NativeVideoAdapterLingjing
+	LegacyTaskPlatformLingjingVideo TaskPlatform = "59"
 )
 
 const (

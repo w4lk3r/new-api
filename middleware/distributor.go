@@ -15,8 +15,10 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -105,7 +107,7 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
+						channelSupportsRequestPath(c, preferred, c.Request.URL.Path, modelRequest.Model) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
@@ -133,11 +135,12 @@ func Distribute() func(c *gin.Context) {
 
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   modelRequest.Model,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
+						Ctx:            c,
+						ModelName:      modelRequest.Model,
+						TokenGroup:     usingGroup,
+						RequestPath:    c.Request.URL.Path,
+						ChannelMatcher: nativeVideoChannelMatcher(c),
+						Retry:          common.GetPointer(0),
 					})
 					if err != nil {
 						showGroup := usingGroup
@@ -160,7 +163,7 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
-		if channel != nil && !channelSupportsRequestPath(channel, c.Request.URL.Path, modelRequest.Model) {
+		if channel != nil && !channelSupportsRequestPath(c, channel, c.Request.URL.Path, modelRequest.Model) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, "selected channel does not support this request path")
 			return
 		}
@@ -174,13 +177,16 @@ func Distribute() func(c *gin.Context) {
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
-// LingjingVideo is isolated to its native prefix. Advanced Custom is usable only
+// NativeVideo is isolated to its native prefixes. Advanced Custom is usable only
 // when one of its configured routes matches.
-func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
+func channelSupportsRequestPath(c *gin.Context, channel *model.Channel, requestPath string, requestModel string) bool {
 	if channel == nil {
 		return false
 	}
 	if !constant.IsChannelTypeAllowedForPath(channel.Type, requestPath) {
+		return false
+	}
+	if !relay.NativeVideoChannelSupportsCreate(c, channel) {
 		return false
 	}
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
@@ -188,6 +194,15 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	}
 	config := channel.GetOtherSettings().AdvancedCustom
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+}
+
+func nativeVideoChannelMatcher(c *gin.Context) model.ChannelMatcher {
+	if !constant.IsNativeVideoPath(c.Request.URL.Path) {
+		return nil
+	}
+	return func(selectedChannel *model.Channel) bool {
+		return relay.NativeVideoChannelSupportsCreate(c, selectedChannel)
+	}
 }
 
 // getModelFromRequest 从请求中读取模型信息
@@ -260,24 +275,29 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	var modelRequest ModelRequest
 	shouldSelectChannel := true
 	var err error
-	if strings.HasPrefix(c.Request.URL.Path, "/v1/lingjing/") {
-		c.Set("platform", string(constant.TaskPlatformLingjingVideo))
+	if constant.IsNativeVideoPath(c.Request.URL.Path) {
 		switch {
 		case c.Request.Method == http.MethodPost && c.Request.URL.Path == "/v1/lingjing/uploads":
 			modelRequest.Model = common.GetStringIfEmpty(c.Query("model"), "lingjing-video-v1")
-		case c.Request.Method == http.MethodPost && c.Request.URL.Path == "/v1/lingjing/videos":
+		case c.Request.Method == http.MethodPost && constant.IsNativeVideoCreatePath(c.Request.URL.Path):
 			req, requestErr := getModelFromRequest(c)
 			if requestErr != nil {
 				return nil, false, requestErr
 			}
 			modelRequest.Model = req.Model
+			if c.Request.URL.Path == "/v1/native-video/generations" {
+				modelRequest.Model = model_setting.ResolveNativeVideoModel(common.GetContextKeyString(c, constant.ContextKeyUsingGroup), req.Model)
+				if modelRequest.Model == "" {
+					return nil, false, fmt.Errorf("native video default model is not configured")
+				}
+			}
 			c.Set("relay_mode", relayconstant.RelayModeVideoSubmit)
 		case c.Request.Method == http.MethodGet:
 			shouldSelectChannel = false
 			modelRequest.Model = getTaskOriginModelName(c)
 			c.Set("relay_mode", relayconstant.RelayModeVideoFetchByID)
 		default:
-			return nil, false, fmt.Errorf("unsupported Lingjing video operation")
+			return nil, false, fmt.Errorf("unsupported native video operation")
 		}
 	} else if strings.Contains(c.Request.URL.Path, "/mj/") {
 		relayMode := relayconstant.Path2RelayModeMidjourney(c.Request.URL.Path)
@@ -490,6 +510,9 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelAutoBan, channel.GetAutoBan())
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
+	if channel.Type == constant.ChannelTypeNativeVideo {
+		common.SetContextKey(c, constant.ContextKeyChannelNativeVideoAdapter, channel.GetNativeVideoAdapterKey())
+	}
 
 	key, index, newAPIError := channel.GetNextEnabledKey()
 	if newAPIError != nil {

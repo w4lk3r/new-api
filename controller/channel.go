@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
@@ -521,11 +522,18 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
-	if channel.Type == constant.ChannelTypeLingjingVideo {
+	if channel.Type == constant.ChannelTypeNativeVideo {
+		adapterKey := strings.TrimSpace(channel.AdapterKey)
+		if isAdd && adapterKey == "" {
+			return fmt.Errorf("NativeVideo adapter_key is required")
+		}
+		if adapterKey != "" && relay.GetNativeVideoAdaptor(adapterKey) == nil {
+			return fmt.Errorf("unknown NativeVideo adapter_key: %s", adapterKey)
+		}
 		baseURL := strings.TrimSpace(channel.GetBaseURL())
 		parsedURL, err := url.Parse(baseURL)
-		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" || (parsedURL.Path != "" && parsedURL.Path != "/") || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
-			return fmt.Errorf("LingjingVideo Base URL must be an origin such as https://example.com")
+		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" || parsedURL.User != nil || (parsedURL.Path != "" && parsedURL.Path != "/") || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
+			return fmt.Errorf("NativeVideo Base URL must be an origin such as https://example.com")
 		}
 	}
 
@@ -960,6 +968,32 @@ func UpdateChannel(c *gin.Context) {
 		})
 		return
 	}
+	if channel.Type == constant.ChannelTypeNativeVideo {
+		if strings.TrimSpace(channel.AdapterKey) == "" && originChannel.Type == constant.ChannelTypeNativeVideo {
+			channel.AdapterKey = originChannel.GetNativeVideoAdapterKey()
+		}
+		if strings.TrimSpace(channel.AdapterKey) == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "NativeVideo adapter_key is required",
+			})
+			return
+		}
+		if relay.GetNativeVideoAdaptor(channel.AdapterKey) == nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "unknown NativeVideo adapter_key",
+			})
+			return
+		}
+		if originChannel.Type == constant.ChannelTypeNativeVideo && channel.AdapterKey != originChannel.GetNativeVideoAdapterKey() {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "NativeVideo adapter_key cannot be changed; create a new channel for another provider",
+			})
+			return
+		}
+	}
 
 	// Always copy the original ChannelInfo so that fields like IsMultiKey and MultiKeySize are retained.
 	channel.ChannelInfo = originChannel.ChannelInfo
@@ -1072,6 +1106,9 @@ func UpdateChannel(c *gin.Context) {
 	}
 	if channel.Type != originChannel.Type {
 		changedFields = append(changedFields, "type")
+	}
+	if channel.AdapterKey != originChannel.AdapterKey {
+		changedFields = append(changedFields, "adapter_key")
 	}
 	if !equalStringPtr(channel.BaseURL, originChannel.BaseURL) {
 		changedFields = append(changedFields, "base_url")

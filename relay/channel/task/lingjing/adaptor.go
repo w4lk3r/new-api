@@ -42,35 +42,23 @@ type TaskAdaptor struct {
 	baseURL string
 }
 
+func (a *TaskAdaptor) AdapterKey() string {
+	return constant.NativeVideoAdapterLingjing
+}
+
+func (a *TaskAdaptor) Capabilities() channel.NativeVideoCapabilities {
+	return channel.NativeVideoCapabilities{Upload: true, Download: true}
+}
+
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.apiKey = info.ApiKey
 	a.baseURL = strings.TrimRight(info.ChannelBaseUrl, "/")
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
-	if c.Request.Method != http.MethodPost || c.Request.URL.Path != "/v1/lingjing/videos" {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("unsupported Lingjing video operation"), "invalid_request", http.StatusBadRequest)
-	}
-	if !strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("Content-Type must be application/json"), "invalid_request", http.StatusUnsupportedMediaType)
-	}
-
-	var request createRequest
-	if err := common.UnmarshalBodyReusable(c, &request); err != nil {
-		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
-	}
-	if request.Duration == nil {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("duration is required"), "invalid_duration", http.StatusBadRequest)
-	}
-	duration := *request.Duration
-	if duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("duration must be between 1 and %d", relaycommon.MaxTaskDurationSeconds), "invalid_duration", http.StatusBadRequest)
-	}
-	if duration != SupportedDuration {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("duration must be %d", SupportedDuration), "invalid_duration", http.StatusBadRequest)
-	}
-	if strings.TrimSpace(request.Model) == "" {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("model is required"), "invalid_request", http.StatusBadRequest)
+	request, taskErr := validateCreateRequest(c)
+	if taskErr != nil {
+		return taskErr
 	}
 
 	c.Set("lingjing_video_request", request)
@@ -79,6 +67,81 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	info.Action = constant.TaskActionGenerate
 	return nil
+}
+
+// SupportsCreateRequest only answers whether this protocol owns the endpoint.
+// Request validation remains in ValidateRequestAndSetAction so malformed user
+// input receives its real 4xx validation error instead of looking like an
+// unavailable channel during weighted selection.
+func (a *TaskAdaptor) SupportsCreateRequest(c *gin.Context) bool {
+	return c.Request.Method == http.MethodPost && constant.IsNativeVideoCreatePath(c.Request.URL.Path)
+}
+
+func validateCreateRequest(c *gin.Context) (createRequest, *dto.TaskError) {
+	if c.Request.Method != http.MethodPost || !constant.IsNativeVideoCreatePath(c.Request.URL.Path) {
+		return createRequest{}, service.TaskErrorWrapperLocal(fmt.Errorf("unsupported Lingjing video operation"), "invalid_request", http.StatusBadRequest)
+	}
+	if !strings.HasPrefix(c.GetHeader("Content-Type"), "application/json") {
+		return createRequest{}, service.TaskErrorWrapperLocal(fmt.Errorf("Content-Type must be application/json"), "invalid_request", http.StatusUnsupportedMediaType)
+	}
+
+	var request createRequest
+	if err := common.UnmarshalBodyReusable(c, &request); err != nil {
+		return createRequest{}, service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	if request.Duration == nil {
+		return createRequest{}, service.TaskErrorWrapperLocal(fmt.Errorf("duration is required"), "invalid_duration", http.StatusBadRequest)
+	}
+	duration := *request.Duration
+	if duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds {
+		return createRequest{}, service.TaskErrorWrapperLocal(fmt.Errorf("duration must be between 1 and %d", relaycommon.MaxTaskDurationSeconds), "invalid_duration", http.StatusBadRequest)
+	}
+	if duration != SupportedDuration {
+		return createRequest{}, service.TaskErrorWrapperLocal(fmt.Errorf("duration must be %d", SupportedDuration), "invalid_duration", http.StatusBadRequest)
+	}
+	// The model-driven endpoint deliberately permits an omitted model: the
+	// distributor resolves it to a group/global default before billing and the
+	// raw body is mapped to the selected channel's upstream model below.
+	if strings.TrimSpace(request.Model) == "" && c.Request.URL.Path != "/v1/native-video/generations" {
+		return createRequest{}, service.TaskErrorWrapperLocal(fmt.Errorf("model is required"), "invalid_request", http.StatusBadRequest)
+	}
+	return request, nil
+}
+
+func (a *TaskAdaptor) ValidateUpload(c *gin.Context, _ *relaycommon.RelayInfo) *dto.TaskError {
+	if c.Request.Method != http.MethodPost || c.Request.URL.Path != "/v1/lingjing/uploads" {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("unsupported Lingjing upload operation"), "invalid_request", http.StatusBadRequest)
+	}
+	if !strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("Content-Type must be multipart/form-data"), "invalid_request", http.StatusUnsupportedMediaType)
+	}
+	if a.baseURL == "" {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("Lingjing video base URL is required"), "invalid_request", http.StatusBadRequest)
+	}
+	return nil
+}
+
+func (a *TaskAdaptor) Upload(c *gin.Context, info *relaycommon.RelayInfo) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, a.baseURL+"/api/open/v1/uploads", c.Request.Body)
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = c.Request.ContentLength
+	req.Header.Set("Content-Type", c.GetHeader("Content-Type"))
+	if accept := c.GetHeader("Accept"); accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+
+	proxy := ""
+	if info != nil && info.ChannelMeta != nil {
+		proxy = info.ChannelMeta.ChannelSetting.Proxy
+	}
+	client, err := service.GetHttpClientWithProxy(proxy)
+	if err != nil {
+		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+	}
+	return client.Do(req)
 }
 
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, _ *relaycommon.RelayInfo) map[string]float64 {
@@ -175,7 +238,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	return client.Do(req)
 }
 
-func FetchTaskDownload(baseURL, key, taskID, proxy string) (*http.Response, error) {
+func (a *TaskAdaptor) FetchTaskDownload(baseURL, key, taskID, proxy string) (*http.Response, error) {
 	if strings.TrimSpace(taskID) == "" {
 		return nil, fmt.Errorf("invalid task_id")
 	}
@@ -197,6 +260,12 @@ func FetchTaskDownload(baseURL, key, taskID, proxy string) (*http.Response, erro
 	return noRedirectClient.Do(req)
 }
 
+// FetchTaskDownload preserves the original public helper for downstream forks.
+// New generic native-video code calls the adapter method through the registry.
+func FetchTaskDownload(baseURL, key, taskID, proxy string) (*http.Response, error) {
+	return (&TaskAdaptor{}).FetchTaskDownload(baseURL, key, taskID, proxy)
+}
+
 func RewriteTaskResponse(responseBody []byte, upstreamTaskID, publicTaskID string) ([]byte, error) {
 	var payload any
 	if err := common.Unmarshal(responseBody, &payload); err != nil {
@@ -207,6 +276,10 @@ func RewriteTaskResponse(responseBody []byte, upstreamTaskID, publicTaskID strin
 		object["task_id"] = publicTaskID
 	}
 	return common.Marshal(payload)
+}
+
+func (a *TaskAdaptor) RewriteTaskResponse(responseBody []byte, upstreamTaskID, publicTaskID string) ([]byte, error) {
+	return RewriteTaskResponse(responseBody, upstreamTaskID, publicTaskID)
 }
 
 func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInfo, error) {

@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -105,7 +106,10 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, matchers ...ChannelMatcher) (*Channel, error) {
+	if len(matchers) > 0 {
+		return getChannelWithMatchers(group, model, retry, requestPath, matchers...)
+	}
 	var abilities []Ability
 
 	var err error = nil
@@ -146,12 +150,81 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	return &channel, err
 }
 
+func getChannelWithMatchers(group string, model string, retry int, requestPath string, matchers ...ChannelMatcher) (*Channel, error) {
+	var abilities []Ability
+	if err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Order("priority DESC").
+		Find(&abilities).Error; err != nil {
+		return nil, err
+	}
+	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model, matchers...)
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	priorities := make([]int64, 0)
+	seen := make(map[int64]struct{})
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if _, exists := seen[priority]; !exists {
+			seen[priority] = struct{}{}
+			priorities = append(priorities, priority)
+		}
+	}
+	sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
+	}
+	if retry < 0 {
+		retry = 0
+	}
+	targetPriority := priorities[retry]
+
+	var candidates []Ability
+	weightSum := uint(0)
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if priority != targetPriority {
+			continue
+		}
+		candidates = append(candidates, ability)
+		weightSum += ability.Weight + 10
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	weight := common.GetRandomInt(int(weightSum))
+	channelID := candidates[0].ChannelId
+	for _, ability := range candidates {
+		weight -= int(ability.Weight) + 10
+		if weight <= 0 {
+			channelID = ability.ChannelId
+			break
+		}
+	}
+	selectedChannel := &Channel{}
+	if err := DB.First(selectedChannel, "id = ?", channelID).Error; err != nil {
+		return nil, err
+	}
+	return selectedChannel, nil
+}
+
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and
-// model for the DB (non-memory-cache) selection path. LingjingVideo is isolated
+// model for the DB (non-memory-cache) selection path. NativeVideo is isolated
 // to its native prefix; Advanced Custom must match one of its configured routes.
 // When requestPath is empty, filtering is skipped.
-func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string) []Ability {
-	if requestPath == "" || len(abilities) == 0 {
+func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string, matchers ...ChannelMatcher) []Ability {
+	if len(abilities) == 0 {
+		return abilities
+	}
+	if requestPath == "" && len(matchers) == 0 {
 		return abilities
 	}
 
@@ -167,14 +240,19 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
-		// On error, fall back to unfiltered candidates to avoid blocking selection
+		// Capability filtering is a safety boundary: when it was requested, do
+		// not risk sending a native request to an unchecked provider.
+		if len(matchers) > 0 {
+			return nil
+		}
+		// Preserve the historical fallback for ordinary path filtering.
 		return abilities
 	}
 
 	advancedConfigs := make(map[int]*dto.AdvancedCustomConfig)
-	channelTypes := make(map[int]int, len(channels))
+	channelByID := make(map[int]*Channel, len(channels))
 	for _, channel := range channels {
-		channelTypes[channel.Id] = channel.Type
+		channelByID[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
 			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
 		}
@@ -182,16 +260,18 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
-		channelType := channelTypes[ability.ChannelId]
-		if !constant.IsChannelTypeAllowedForPath(channelType, requestPath) {
+		selectedChannel := channelByID[ability.ChannelId]
+		if selectedChannel == nil {
+			continue
+		}
+		if requestPath != "" && !constant.IsChannelTypeAllowedForPath(selectedChannel.Type, requestPath) {
 			continue
 		}
 		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
-		if !isAdvancedCustom {
-			filtered = append(filtered, ability)
+		if requestPath != "" && isAdvancedCustom && (config == nil || !config.SupportsPathForModel(requestPath, model)) {
 			continue
 		}
-		if config != nil && config.SupportsPathForModel(requestPath, model) {
+		if channelMatchesAll(selectedChannel, matchers) {
 			filtered = append(filtered, ability)
 		}
 	}

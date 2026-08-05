@@ -273,6 +273,37 @@ func migrateInvitationRewardRecord() error {
 	return DB.AutoMigrate(&InvitationRewardRecord{})
 }
 
+// migrateNativeVideoChannelAdaptersAndTasks makes the first native-video
+// provider explicit without changing unrelated historical task platforms. Type
+// 59 was introduced in this fork solely for Lingjing, so an empty adapter_key
+// on that type is a verifiable legacy Lingjing channel. Tasks are migrated only
+// when their channel has that explicit marker after the first update.
+func migrateNativeVideoChannelAdaptersAndTasks() error {
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	if err := tx.Model(&Channel{}).
+		Where("type = ? AND (adapter_key = ? OR adapter_key IS NULL)", constant.ChannelTypeNativeVideo, "").
+		Update("adapter_key", constant.NativeVideoAdapterLingjing).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	lingjingChannelIDs := tx.Model(&Channel{}).
+		Select("id").
+		Where("type = ? AND adapter_key = ?", constant.ChannelTypeNativeVideo, constant.NativeVideoAdapterLingjing)
+	if err := tx.Model(&Task{}).
+		Where("platform = ? AND channel_id IN (?)", constant.LegacyTaskPlatformLingjingVideo, lingjingChannelIDs).
+		Update("platform", constant.TaskPlatformLingjingVideo).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit().Error
+}
+
 func migrateDB() error {
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
@@ -317,6 +348,9 @@ func migrateDB() error {
 		&AuthzRole{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := migrateNativeVideoChannelAdaptersAndTasks(); err != nil {
 		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
@@ -393,6 +427,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := migrateNativeVideoChannelAdaptersAndTasks(); err != nil {
+		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {

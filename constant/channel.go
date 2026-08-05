@@ -56,10 +56,21 @@ const (
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
 	ChannelTypeAdvancedCustom = 58
-	ChannelTypeLingjingVideo  = 59
-	ChannelTypeDummy          // this one is only for count, do not add any channel after this
+	// ChannelTypeNativeVideo is the shared channel type for native asynchronous
+	// video providers. The concrete upstream protocol is stored in
+	// Channel.AdapterKey, rather than consuming a new channel-type number for
+	// every provider.
+	ChannelTypeNativeVideo = 59
+	ChannelTypeDummy       = 60 // this one is only for count, do not add any channel after this
 
 )
+
+// ChannelTypeLingjingVideo is kept as a source-compatible alias for private
+// deployments that used the original Lingjing-only implementation. New code
+// must use ChannelTypeNativeVideo and select the protocol via adapter_key.
+const ChannelTypeLingjingVideo = ChannelTypeNativeVideo
+
+const NativeVideoAdapterLingjing = "lingjing"
 
 var ChannelBaseURLs = []string{
 	"",                                    // 0
@@ -180,7 +191,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "ChatGPT Subscription (Codex)",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
-	ChannelTypeLingjingVideo:  "LingjingVideo",
+	ChannelTypeNativeVideo:    "NativeVideo",
 }
 
 func GetChannelTypeName(channelType int) string {

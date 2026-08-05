@@ -36,6 +36,8 @@ type GlobalSettings struct {
 	PassThroughRequestEnabled        bool                             `json:"pass_through_request_enabled"`
 	ThinkingModelBlacklist           []string                         `json:"thinking_model_blacklist"`
 	ChatCompletionsToResponsesPolicy ChatCompletionsToResponsesPolicy `json:"chat_completions_to_responses_policy"`
+	NativeVideoDefaultModel          string                           `json:"native_video_default_model"`
+	NativeVideoGroupDefaultModels    map[string]string                `json:"native_video_group_default_models"`
 }
 
 // 默认配置
@@ -49,6 +51,8 @@ var defaultOpenaiSettings = GlobalSettings{
 		Enabled:     false,
 		AllChannels: true,
 	},
+	NativeVideoDefaultModel:       "",
+	NativeVideoGroupDefaultModels: map[string]string{},
 }
 
 // 全局实例
@@ -76,4 +80,20 @@ func ShouldPreserveThinkingSuffix(modelName string) bool {
 		}
 	}
 	return false
+}
+
+// ResolveNativeVideoModel applies the public default-model contract for the
+// model-driven native-video endpoint. A concrete caller model always wins;
+// omitted model and the reserved video-default alias resolve through the user
+// group and then the global default. The distributor subsequently performs the
+// normal token, group, model availability, and price checks on the result.
+func ResolveNativeVideoModel(group string, requestedModel string) string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel != "" && requestedModel != "video-default" {
+		return requestedModel
+	}
+	if groupModel := strings.TrimSpace(globalSettings.NativeVideoGroupDefaultModels[strings.TrimSpace(group)]); groupModel != "" {
+		return groupModel
+	}
+	return strings.TrimSpace(globalSettings.NativeVideoDefaultModel)
 }

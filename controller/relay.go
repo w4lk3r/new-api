@@ -178,12 +178,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	var channelMatcher model.ChannelMatcher
+	if constant.IsNativeVideoPath(c.Request.URL.Path) {
+		channelMatcher = func(selectedChannel *model.Channel) bool {
+			return relay.NativeVideoChannelSupportsCreate(c, selectedChannel)
+		}
+	}
 	retryParam := &service.RetryParam{
-		Ctx:         c,
-		TokenGroup:  relayInfo.TokenGroup,
-		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
-		Retry:       common.GetPointer(0),
+		Ctx:            c,
+		TokenGroup:     relayInfo.TokenGroup,
+		ModelName:      relayInfo.OriginModelName,
+		RequestPath:    c.Request.URL.Path,
+		ChannelMatcher: channelMatcher,
+		Retry:          common.GetPointer(0),
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -507,12 +514,19 @@ func RelayTask(c *gin.Context) {
 		}
 	}()
 
+	var channelMatcher model.ChannelMatcher
+	if constant.IsNativeVideoPath(c.Request.URL.Path) {
+		channelMatcher = func(selectedChannel *model.Channel) bool {
+			return relay.NativeVideoChannelSupportsCreate(c, selectedChannel)
+		}
+	}
 	retryParam := &service.RetryParam{
-		Ctx:         c,
-		TokenGroup:  relayInfo.TokenGroup,
-		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
-		Retry:       common.GetPointer(0),
+		Ctx:            c,
+		TokenGroup:     relayInfo.TokenGroup,
+		ModelName:      relayInfo.OriginModelName,
+		RequestPath:    c.Request.URL.Path,
+		ChannelMatcher: channelMatcher,
+		Retry:          common.GetPointer(0),
 	}
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
@@ -615,6 +629,13 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError, retryTimes int) bool {
 	if taskErr == nil {
+		return false
+	}
+	// A native-video create may have been accepted even when its upstream
+	// response was lost. Do not automatically fail over to another provider
+	// (or key) without an upstream idempotency contract; duplicate generation
+	// and duplicate billing are worse than a safe, explicit client retry.
+	if constant.IsNativeVideoCreatePath(c.Request.URL.Path) {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {

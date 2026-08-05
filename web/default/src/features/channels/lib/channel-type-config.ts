@@ -148,11 +148,11 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
     id: 59,
     name: CHANNEL_TYPES[59],
     icon: 'openai',
-    supportedModels: ['lingjing-video-v1'],
+    supportedModels: ['video-default', 'lingjing-video-v1'],
     hints: {
-      baseUrl: 'Enter the upstream origin only, without /api/open/v1',
+      baseUrl: 'Enter the upstream origin only, without a provider API path',
       key: 'Upstream Bearer API key',
-      models: 'lingjing-video-v1',
+      models: 'Logical models exposed by this channel',
     },
   },
 }

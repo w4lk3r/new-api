@@ -23,6 +23,21 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
 
+// ChannelMatcher is an optional request-aware capability predicate used after
+// normal group/model/path filtering and before priority/weight selection. It
+// lets native async providers reject unsupported raw request shapes without
+// making model routing depend on concrete provider packages.
+type ChannelMatcher func(*Channel) bool
+
+func channelMatchesAll(channel *Channel, matchers []ChannelMatcher) bool {
+	for _, matcher := range matchers {
+		if matcher != nil && !matcher(channel) {
+			return false
+		}
+	}
+	return true
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		InvalidatePricingCache()
@@ -111,22 +126,22 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, matchers ...ChannelMatcher) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath)
+		return GetChannel(group, model, retry, requestPath, matchers...)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
+	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model, matchers...)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
+		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model, matchers...)
 	}
 
 	if len(channels) == 0 {
@@ -209,11 +224,14 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and
-// model. LingjingVideo is isolated to its native prefix; Advanced Custom must
+// model. NativeVideo is isolated to its native prefixes; Advanced Custom must
 // match one of its configured routes. When requestPath is empty, filtering is skipped.
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.
-func filterChannelsByRequestPathAndModel(channels []int, requestPath string, model string) []int {
-	if requestPath == "" || len(channels) == 0 {
+func filterChannelsByRequestPathAndModel(channels []int, requestPath string, model string, matchers ...ChannelMatcher) []int {
+	if len(channels) == 0 {
+		return channels
+	}
+	if requestPath == "" && len(matchers) == 0 {
 		return channels
 	}
 	filtered := make([]int, 0, len(channels))
@@ -224,14 +242,15 @@ func filterChannelsByRequestPathAndModel(channels []int, requestPath string, mod
 			filtered = append(filtered, channelId)
 			continue
 		}
-		if !constant.IsChannelTypeAllowedForPath(channel.Type, requestPath) {
+		if requestPath != "" && !constant.IsChannelTypeAllowedForPath(channel.Type, requestPath) {
 			continue
 		}
-		if channel.Type != constant.ChannelTypeAdvancedCustom {
-			filtered = append(filtered, channelId)
-			continue
+		if requestPath != "" && channel.Type == constant.ChannelTypeAdvancedCustom {
+			if config := channel2advancedCustomConfig[channelId]; config == nil || !config.SupportsPathForModel(requestPath, model) {
+				continue
+			}
 		}
-		if config := channel2advancedCustomConfig[channelId]; config != nil && config.SupportsPathForModel(requestPath, model) {
+		if channelMatchesAll(channel, matchers) {
 			filtered = append(filtered, channelId)
 		}
 	}

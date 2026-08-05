@@ -81,3 +81,26 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// NativeVideoCapabilities declares optional protocol features. Common task,
+// billing, ownership, and settlement behavior stays in the shared relay
+// pipeline; adapters only describe and implement their upstream protocol.
+type NativeVideoCapabilities struct {
+	Upload   bool
+	Download bool
+}
+
+// NativeVideoAdaptor extends TaskAdaptor for provider-native video endpoints.
+// It deliberately keeps upstream request construction and response rewriting
+// in the adapter while the controllers remain provider-neutral.
+type NativeVideoAdaptor interface {
+	TaskAdaptor
+
+	AdapterKey() string
+	Capabilities() NativeVideoCapabilities
+	SupportsCreateRequest(c *gin.Context) bool
+	ValidateUpload(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError
+	Upload(c *gin.Context, info *relaycommon.RelayInfo) (*http.Response, error)
+	FetchTaskDownload(baseURL, key, taskID, proxy string) (*http.Response, error)
+	RewriteTaskResponse(responseBody []byte, upstreamTaskID, publicTaskID string) ([]byte, error)
+}
