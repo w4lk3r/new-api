@@ -82,6 +82,7 @@ type TaskAdaptor struct {
 	plugin         *pluginruntime.LoadedPlugin
 	info           *relaycommon.RelayInfo
 	submit         *requestDescriptor
+	contentType    string // Host-encoded content type takes precedence over plugin headers.
 	routeRequest   *pluginruntime.RouteRequestContext
 	requestHeaders map[string]string
 	files          []map[string]any
@@ -217,18 +218,27 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 	for name, value := range a.submit.Headers {
 		req.Header.Set(name, value)
 	}
+	if a.contentType != "" {
+		req.Header.Set("Content-Type", a.contentType)
+	}
 	return nil
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	a.contentType = ""
 	descriptor, err := a.buildSubmit(c, info)
 	if err != nil {
 		return nil, err
 	}
 	if descriptor.BodyType == "multipart" {
-		form, parseErr := common.ParseMultipartFormReusable(c)
-		if parseErr != nil {
-			return nil, parseErr
+		form := &multipart.Form{}
+		// JSON clients may submit text-only tasks to a multipart upstream.
+		if strings.EqualFold(c.ContentType(), "multipart/form-data") {
+			var parseErr error
+			form, parseErr = common.ParseMultipartFormReusable(c)
+			if parseErr != nil {
+				return nil, parseErr
+			}
 		}
 		defer form.RemoveAll()
 		var body bytes.Buffer
@@ -283,7 +293,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		if err = writer.Close(); err != nil {
 			return nil, err
 		}
-		c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+		a.contentType = writer.FormDataContentType()
 		return bytes.NewReader(body.Bytes()), nil
 	}
 	if descriptor.Body == nil {

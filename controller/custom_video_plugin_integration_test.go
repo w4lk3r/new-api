@@ -62,13 +62,9 @@ func TestCustomVideoPluginSeededTaskLifecycle(t *testing.T) {
 	runCustomVideoLifecycle(t, "seeded")
 }
 
-// This opt-in probe deliberately retains the successful-submit contract. It
-// fails on unmodified rc.31, which drops the generated multipart Content-Type.
-func TestCustomVideoPluginSubmitProbe(t *testing.T) {
-	if os.Getenv("RUN_UPSTREAM_VIDEO_SUBMIT_PROBE") != "1" {
-		t.Skip("rc.31 multipart submit is blocked; RUN_UPSTREAM_VIDEO_SUBMIT_PROBE=1 reproduces the failure against a local httptest upstream")
-	}
-	for _, format := range []string{"multipart", "json"} {
+// Exercise the production submit path against a real HTTP multipart parser.
+func TestCustomVideoPluginSubmitLifecycle(t *testing.T) {
+	for _, format := range []string{"multipart", "multipart_no_images", "multipart_one_image", "multipart_three_images", "json"} {
 		t.Run(format, func(t *testing.T) { runCustomVideoLifecycle(t, format) })
 	}
 }
@@ -243,11 +239,23 @@ func runCustomVideoLifecycle(t *testing.T, format string) {
 	}
 	charge := common.QuotaFromFloat(0.25 * 2 * common.QuotaPerUnit)
 	if seeded {
-		// The submit path is independently blocked in rc.31. These records are
-		// explicit fixtures, not evidence of a successful creation request.
+		// Existing paid tasks must remain queryable without resubmission.
 		receipt.ID = seedCustomVideoTask(t, database, owner.Id, ownerToken, channel, "private-1", charge)
 	} else {
-		request := customVideoMultipartRequest(t, "image_1", "image_2")
+		fields := []string{"image_1", "image_2"}
+		expectedImages := map[string][]byte{"first.png": []byte("first-image"), "second.png": []byte("second-image")}
+		switch format {
+		case "multipart_no_images", "json":
+			fields = nil
+			expectedImages = map[string][]byte{}
+		case "multipart_one_image":
+			fields = []string{"image_1"}
+			delete(expectedImages, "second.png")
+		case "multipart_three_images":
+			fields = append(fields, "image_3")
+			expectedImages["third.png"] = []byte("third-image")
+		}
+		request := customVideoMultipartRequest(t, fields...)
 		if format == "json" {
 			request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"custom-video-30s","prompt":"two distinct references","ratio":"16:9","seconds":"30"}`))
 			request.Header.Set("Content-Type", "application/json")
@@ -273,11 +281,7 @@ func runCustomVideoLifecycle(t *testing.T, format string) {
 		seen := <-uploads
 		assert.Equal(t, "video-"+receipt.ID, seen.idempotency)
 		assert.Equal(t, map[string][]string{"prompt": {"two distinct references"}, "ratio": {"16:9"}, "seconds": {"30"}}, seen.fields)
-		if format == "multipart" {
-			assert.Equal(t, map[string][]byte{"first.png": []byte("first-image"), "second.png": []byte("second-image")}, seen.images)
-		} else {
-			assert.Empty(t, seen.images)
-		}
+		assert.Equal(t, expectedImages, seen.images)
 	}
 	var task model.Task
 	require.NoError(t, database.Where("task_id = ?", receipt.ID).First(&task).Error)
@@ -378,7 +382,7 @@ func seedCustomVideoTask(t *testing.T, database *gorm.DB, userID int, token mode
 	task.SetData(map[string]any{"code": "1", "task_id": upstreamID, "status": "queued"})
 	require.NoError(t, database.Create(&task).Error)
 	// Seed the already-paid snapshot directly; submission/pre-consumption is
-	// covered by the opt-in probe rather than being simulated here.
+	// covered by the submit lifecycle test rather than being simulated here.
 	require.NoError(t, database.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]any{"quota": gorm.Expr("quota - ?", charge), "used_quota": gorm.Expr("used_quota + ?", charge)}).Error)
 	require.NoError(t, database.Model(&model.Token{}).Where("id = ?", token.Id).Updates(map[string]any{"remain_quota": gorm.Expr("remain_quota - ?", charge), "used_quota": gorm.Expr("used_quota + ?", charge)}).Error)
 	require.NoError(t, database.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("used_quota", gorm.Expr("used_quota + ?", charge)).Error)
@@ -394,20 +398,23 @@ func customVideoRequest(handler http.Handler, request *http.Request, key string)
 	return recorder
 }
 
-func customVideoMultipartRequest(t *testing.T, firstField, secondField string) *http.Request {
+func customVideoMultipartRequest(t *testing.T, fields ...string) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for _, field := range [][2]string{{"model", customVideoModel}, {"prompt", "two distinct references"}, {"ratio", "16:9"}, {"seconds", "30"}} {
 		require.NoError(t, writer.WriteField(field[0], field[1]))
 	}
-	for _, file := range [][3]string{{firstField, "first.png", "first-image"}, {secondField, "second.png", "second-image"}} {
+	files := [][2]string{{"first.png", "first-image"}, {"second.png", "second-image"}, {"third.png", "third-image"}}
+	require.LessOrEqual(t, len(fields), len(files))
+	for index, field := range fields {
+		file := files[index]
 		header := textproto.MIMEHeader{}
-		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, file[0], file[1]))
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, field, file[0]))
 		header.Set("Content-Type", "image/png")
 		part, err := writer.CreatePart(header)
 		require.NoError(t, err)
-		_, err = io.WriteString(part, file[2])
+		_, err = io.WriteString(part, file[1])
 		require.NoError(t, err)
 	}
 	require.NoError(t, writer.Close())

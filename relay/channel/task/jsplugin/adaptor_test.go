@@ -81,7 +81,7 @@ func TestTaskAdaptorRejectsDeprecatedClientResponse(t *testing.T) {
 func TestTaskAdaptorBuildsMultipartFromOpaqueFileReference(t *testing.T) {
 	source := `
 export const meta = {apiVersion:1,key:"multipart",name:"Multipart",version:"1.0.0",author:{name:"Test"},models:["m"],fetchMode:"per_task"};
-export function buildSubmitRequest(ctx) { return {url:ctx.baseUrl+"/submit",bodyType:"multipart",parts:[{name:"model",value:"m"},{name:"input_reference",fileRef:ctx.files[0].ref}]}; }
+export function buildSubmitRequest(ctx) { return {url:ctx.baseUrl+"/submit",headers:{"content-type":"multipart/form-data; boundary=stale","X-Plugin":"preserved"},bodyType:"multipart",parts:[{name:"model",value:"m"},{name:"input_reference",fileRef:ctx.files[0].ref}]}; }
 export function parseSubmitResponse(ctx,r){return {taskId:"1"}} export function buildQueryRequest(){return {url:"https://example.com"}} export function parseTaskResult(){return {status:"SUCCESS"}}
 `
 	plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
@@ -102,18 +102,50 @@ export function parseSubmitResponse(ctx,r){return {taskId:"1"}} export function 
 	c.Set("task_request", relaycommon.TaskSubmitReq{Prompt: "p"})
 	body, err := adaptor.BuildRequestBody(c, info)
 	require.NoError(t, err)
-	requestBytes, err := io.ReadAll(body)
+	outbound := httptest.NewRequest(http.MethodPost, "/submit", body)
+	require.NoError(t, adaptor.BuildRequestHeader(c, outbound, info))
+	assert.Equal(t, writer.FormDataContentType(), c.GetHeader("Content-Type"), "client header must stay unchanged")
+	assert.Equal(t, "preserved", outbound.Header.Get("X-Plugin"))
+	err = outbound.ParseMultipartForm(1024)
 	require.NoError(t, err)
-	reader := multipart.NewReader(bytes.NewReader(requestBytes), strings.TrimPrefix(c.GetHeader("Content-Type"), "multipart/form-data; boundary="))
-	form, err := reader.ReadForm(1024)
-	require.NoError(t, err)
+	form := outbound.MultipartForm
+	t.Cleanup(func() { require.NoError(t, form.RemoveAll()) })
 	assert.Equal(t, []string{"m"}, form.Value["model"])
 	require.Len(t, form.File["input_reference"], 1)
 	opened, err := form.File["input_reference"][0].Open()
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, opened.Close()) })
 	content, err := io.ReadAll(opened)
 	require.NoError(t, err)
 	assert.Equal(t, "image-bytes", string(content))
+}
+
+func TestTaskAdaptorRejectsInvalidMultipartInput(t *testing.T) {
+	for _, tc := range []struct {
+		name, contentType, body, part, wantError string
+	}{
+		{"missing boundary", "multipart/form-data", "invalid", `{name:"prompt",value:"p"}`, "boundary"},
+		{"JSON cannot supply file references", "application/json", `{}`, `{name:"image",fileRef:"request_file:missing"}`, "unknown file reference"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := strings.Replace(`
+export const meta = {apiVersion:1,key:"multipart-invalid",name:"Multipart Invalid",version:"1.0.0",author:{name:"Test"},models:["m"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx) { return {url:ctx.baseUrl+"/submit",bodyType:"multipart",parts:[PART]}; }
+export function parseSubmitResponse(){return {taskId:"1"}} export function buildQueryRequest(){return {}} export function parseTaskResult(){return {status:"SUCCESS"}}
+`, "PART", tc.part, 1)
+			plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+			require.NoError(t, err)
+			adaptor := New(plugin)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://provider.example"}, TaskRelayInfo: &relaycommon.TaskRelayInfo{}}
+			adaptor.Init(info)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", tc.contentType)
+			c.Set("task_request", map[string]any{"model": "m"})
+			_, err = adaptor.BuildRequestBody(c, info)
+			require.ErrorContains(t, err, tc.wantError)
+		})
+	}
 }
 
 func TestTaskAdaptorInlinesJSONFilePlaceholders(t *testing.T) {

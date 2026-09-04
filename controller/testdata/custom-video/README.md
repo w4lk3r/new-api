@@ -21,24 +21,31 @@ Run from the repository root:
 go test ./controller -run '^TestCustomVideoPlugin' -count=1 -v
 ```
 
-The original nine fixture cases pass. The normal integration test uses the
+The original nine fixture cases pass. The integration tests use the
 production router, TokenAuth, distribution middleware, polling implementation,
 and content proxy against local `httptest` servers and a temporary SQLite DB.
-Because successful creation is blocked as described below, this test explicitly
-**seeds already-paid task records**. It verifies group/model access rejection,
-task ownership, upstream-ID lookup with the channel Key, processing/success/failure
-mapping, credentialless video download, and a single normal-path failure refund.
-It does not prove that submission persists a task or that refunds recover from
+`TestCustomVideoPluginSubmitLifecycle` creates real tasks through this local
+pipeline for JSON text-only input and multipart input with zero, one, two, or
+three distinct reference files. It verifies upstream form fields/file bytes,
+channel authorization, group/model access rejection, persistence and task
+ownership, upstream-ID lookup, processing/success/failure mapping, credentialless
+video download, and a single normal-path failure refund. Each submitted task
+charges the test wallet once; queries and downloads do not charge it again.
+
+`TestCustomVideoPluginSeededTaskLifecycle` separately checks existing already-paid
+task records without resubmission. Neither test proves refund recovery from
 database failures/process crashes. SQLite testing is not a three-database
-migration compatibility claim.
+migration compatibility claim. This HTTP encoding fix does not change database
+models, migrations, drivers, queries, or accounting implementation.
 
-## Reproducible submission blockers (unmodified rc.31)
+## Multipart regression and fix
 
-The opt-in probe retains the required successful multipart submission contract.
-It is skipped by default, not rewritten to treat the defect as correct behavior:
+On unmodified rc.31, the previously opt-in `TestCustomVideoPluginSubmitProbe`
+reproduced two submission blockers. Its successful-submit assertions now run
+unconditionally in the expanded lifecycle test:
 
 ```sh
-RUN_UPSTREAM_VIDEO_SUBMIT_PROBE=1 go test ./controller -run '^TestCustomVideoPluginSubmitProbe$' -count=1 -v
+go test ./controller -run '^TestCustomVideoPluginSubmitLifecycle$' -count=1 -v
 ```
 
 Both cases fail on the unmodified host:
@@ -51,11 +58,15 @@ Both cases fail on the unmodified host:
   Creation returns HTTP 500 with `multipart boundary not found` before calling
   the upstream.
 
-The probes configure a whole-task ModelPrice of USD 0.25 and group multiplier 2.
-The real billing session pre-consumes USD 0.50, then refunds it after the failed
-submission; the probe waits for both wallet and token quota restoration before
-closing its database. Neither the supplied JavaScript nor production Go is
-modified to make this validation pass.
+The fix retains the encoder-generated Content-Type on the adaptor and applies
+it to the actual outgoing request after plugin headers. The client's original
+Content-Type is unchanged. JSON input can produce a text-only multipart body;
+malformed multipart input and nonexistent file references remain rejected.
+
+Tests configure a whole-task ModelPrice of USD 0.25 and group multiplier 2.
+The real billing session pre-consumes USD 0.50 in the temporary test database.
+Failed upstream tasks refund both wallet and token quota exactly once under
+repeated polling. The supplied JavaScript and fixture files remain unchanged.
 
 ## Remaining integration requirements
 
@@ -66,8 +77,8 @@ modified to make this validation pass.
 - The supplied standard video renderer does not expose the failure reason;
   `/custom/v1/videos/:task_id` does include it.
 - The supplied plugin rejects repeated inbound `images[]` fields; multiple images
-  must use `image_1` through `image_9`. The outbound two-distinct-image assertion
-  remains behind the blocked submit probe and has not passed end-to-end.
+  must use `image_1` through `image_9`. Local HTTP tests now verify the outgoing
+  repeated `images[]` fields preserve up to three distinct filenames and bodies.
 - Real upstream TLS, authorization, image acceptance, generation, result URL
   availability, shared-IP polling limits, and upstream refunds are unverified.
   No paid request was made.
