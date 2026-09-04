@@ -55,6 +55,10 @@ const quotaSchema = z.object({
   PreConsumedQuota: z.coerce.number().min(0),
   QuotaForInviter: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
+  payment_setting: z.object({
+    invite_recharge_reward_enabled: z.boolean(),
+    invite_recharge_reward_rate: z.coerce.number().min(0).max(100),
+  }),
   TopUpLink: z.string(),
   general_setting: z.object({
     docs_link: z.string(),
@@ -106,6 +110,9 @@ export function QuotaSettingsSection({
         }
       },
     })
+  const rechargeRewardEnabled = form.watch(
+    'payment_setting.invite_recharge_reward_enabled'
+  )
 
   return (
     <SettingsSection title={t('Quota Settings')}>
@@ -231,6 +238,66 @@ export function QuotaSettingsSection({
                     {t('Quota given to invited users ({{formattedQuota}})', {
                       formattedQuota: formatQuotaInputValue(field.value),
                     })}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='payment_setting.invite_recharge_reward_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Recharge Referral Commission')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Reward the inviter when an invited user completes an eligible recharge.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={
+                          updateOption.isPending || !complianceConfirmed
+                        }
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <FormField
+              control={form.control}
+              name='payment_setting.invite_recharge_reward_rate'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Recharge Commission Rate')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      value={field.value ?? ''}
+                      onChange={handleNumberChange(field.onChange)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      disabled={
+                        updateOption.isPending || !rechargeRewardEnabled
+                      }
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Percentage of credited recharge quota awarded to the inviter (0-100%).'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

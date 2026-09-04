@@ -57,10 +57,6 @@ func GetPasswordEncryptionKey(c *gin.Context) {
 }
 
 func Login(c *gin.Context) {
-	if !common.PasswordLoginEnabled {
-		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
-		return
-	}
 	var loginRequest LoginRequest
 	err := common.DecodeJson(c.Request.Body, &loginRequest)
 	if err != nil {
@@ -90,6 +86,11 @@ func Login(c *gin.Context) {
 	}
 	err = user.ValidateAndFill()
 	if err != nil {
+		// 即使全局禁用了密码登录，也应返回一致的用户名或密码错误，避免被撞库嗅探哪些是管理员账号
+		if !common.PasswordLoginEnabled {
+			common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
+			return
+		}
 		switch {
 		case errors.Is(err, model.ErrDatabase):
 			common.SysLog(fmt.Sprintf("Login database error for user %s: %v", username, err))
@@ -99,6 +100,12 @@ func Login(c *gin.Context) {
 		default:
 			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
 		}
+		return
+	}
+
+	// 如果全局禁用了密码登录，只有 Role >= RoleAdminUser 的管理员才被允许登录
+	if !common.PasswordLoginEnabled && user.Role < common.RoleAdminUser {
+		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
 		return
 	}
 
@@ -367,6 +374,96 @@ func GetAllUsers(c *gin.Context) {
 
 	common.ApiSuccess(c, pageInfo)
 	return
+}
+
+func GetInvitedUsers(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	users, total, err := model.GetInvitedUsers(userId, pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(users)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetSelfInvitedUsers(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	users, total, err := model.GetUserInvitedUsers(c.GetInt("id"), pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(users)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetInvitationRewardRecords(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	pageInfo := common.GetPageQuery(c)
+	records, total, err := model.GetInvitationRewardRecords(userId, pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(records)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetSelfInvitationRewardRecords(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	records, total, err := model.GetUserInvitationRewardRecords(c.GetInt("id"), pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(records)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func ClearInvitationRewardQuota(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !canManageTargetRole(c.GetInt("role"), user.Role) {
+		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		return
+	}
+
+	clearedQuota, err := model.ClearInvitationRewardQuota(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAuditFor(c, userId, "user.invitation_reward_clear", map[string]interface{}{
+		"before_quota": logger.LogQuota(clearedQuota),
+		"after_quota":  logger.LogQuota(0),
+		"quota":        logger.LogQuota(clearedQuota),
+	})
+	if clearedQuota > 0 {
+		model.RecordLog(userId, model.LogTypeSystem, fmt.Sprintf("管理员已完成邀请奖励提取，清零额度 %s", logger.LogQuota(clearedQuota)))
+	}
+	common.ApiSuccess(c, gin.H{"cleared_quota": clearedQuota})
 }
 
 func SearchUsers(c *gin.Context) {

@@ -1,19 +1,13 @@
 name: Publish Docker image (Multi-arch)
 
 on:
-  push:
-    tags:
-      - '*'
-      - '!nightly*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag name to build (e.g., v0.10.8-alpha.3)'
-        required: true
-        type: string
 
 jobs:
   build_single_arch:
+    # This fork publishes to GHCR via publish-ghcr.yml. Keep the upstream
+    # workflow definition for reference, but never allow it to use Docker Hub.
+    if: ${{ false }}
     name: Build & push (${{ matrix.arch }})
     strategy:
       fail-fast: false
@@ -104,10 +98,10 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   create_manifests:
+    if: ${{ false }}
     name: Create multi-arch manifests
     needs: [build_single_arch]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
 
     permissions:
       id-token: write

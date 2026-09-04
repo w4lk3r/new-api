@@ -1,0 +1,59 @@
+name: Fork database compatibility
+
+on:
+  push:
+    branches:
+      - 'codex/upstream-sync'
+    paths:
+      - 'model/**'
+      - 'common/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/fork-database-tests.yml'
+  pull_request:
+    paths:
+      - 'model/**'
+      - 'common/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/fork-database-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  database-tests:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: fork-test-password
+          MYSQL_DATABASE: newapi_fork_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pfork-test-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fork_test
+          POSTGRES_PASSWORD: fork-test-password
+          POSTGRES_DB: newapi_fork_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U fork_test -d newapi_fork_test"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Run SQLite, MySQL, and PostgreSQL regressions
+        env:
+          TEST_MYSQL_DSN: 'root:fork-test-password@tcp(127.0.0.1:3306)/newapi_fork_test?charset=utf8mb4&parseTime=True&loc=UTC'
+          TEST_POSTGRES_DSN: 'host=127.0.0.1 port=5432 user=fork_test password=fork-test-password dbname=newapi_fork_test sslmode=disable'
+        run: go test -count=1 -v ./model

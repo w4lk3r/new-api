@@ -80,7 +80,11 @@ export function UserAuthForm({
   const passkeyLoginEnabled = Boolean(
     status?.passkey_login ?? status?.data?.passkey_login
   )
+  const adminLoginRequested =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('admin') === 'true'
   const passwordLoginEnabled =
+    adminLoginRequested ||
     (status?.password_login_enabled ??
       status?.data?.password_login_enabled ??
       true) !== false

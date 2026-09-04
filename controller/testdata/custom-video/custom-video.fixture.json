@@ -1,0 +1,161 @@
+{
+  "cases": [
+    {
+      "name": "decode multipart create",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [
+        {
+          "protocol": "openai_video",
+          "operation": "create",
+          "model": "custom-video-30s",
+          "stream": false,
+          "body": {
+            "kind": "multipart",
+            "fields": {
+              "model": ["custom-video-30s"],
+              "prompt": ["city sunrise"],
+              "ratio": ["16:9"],
+              "seconds": ["30"]
+            },
+            "files": [
+              {
+                "ref": "request_file:image_1",
+                "field": "image_1",
+                "filename": "01.jpg",
+                "mimeType": "image/jpeg",
+                "size": 1024
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "kind": "submit",
+        "model": "custom-video-30s",
+        "action": "image_to_video",
+        "requestBody": {
+          "prompt": "city sunrise",
+          "ratio": "16:9",
+          "seconds": "30"
+        }
+      }
+    },
+    {
+      "name": "build target multipart request",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "requestBody": {"prompt": "city sunrise", "ratio": "16:9", "seconds": "30"},
+          "files": [
+            {
+              "ref": "request_file:image_1",
+              "field": "image_1",
+              "filename": "01.jpg",
+              "mimeType": "image/jpeg",
+              "size": 1024
+            }
+          ],
+          "baseUrl": "https://43.254.166.196/",
+          "apiKey": "target-token",
+          "publicTaskId": "task_public_001"
+        }
+      ],
+      "expected": {
+        "url": "https://43.254.166.196/api/v1/videos",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer target-token",
+          "Accept": "application/json",
+          "Idempotency-Key": "video-task_public_001"
+        },
+        "bodyType": "multipart",
+        "parts": [
+          {"name": "prompt", "value": "city sunrise"},
+          {"name": "ratio", "value": "16:9"},
+          {"name": "seconds", "value": "30"},
+          {"name": "images[]", "fileRef": "request_file:image_1", "filename": "01.jpg"}
+        ]
+      }
+    },
+    {
+      "name": "parse create response",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {},
+        {
+          "statusCode": 200,
+          "headers": {},
+          "body": {"code": "1", "message": "created", "task_id": "target001", "status": "queued"}
+        }
+      ],
+      "expected": {
+        "taskId": "target001",
+        "taskData": {"code": "1", "task_id": "target001", "status": "queued"}
+      }
+    },
+    {
+      "name": "build query request",
+      "hook": "buildQueryRequest",
+      "args": [
+        {"taskId": "target001", "baseUrl": "https://43.254.166.196", "apiKey": "target-token"}
+      ],
+      "expected": {
+        "url": "https://43.254.166.196/api/v1/videos/target001",
+        "method": "GET",
+        "headers": {"Authorization": "Bearer target-token", "Accept": "application/json"}
+      }
+    },
+    {
+      "name": "parse processing response",
+      "hook": "parseTaskResult",
+      "args": [{}, {"code": "0", "message": "processing", "task": {"task_id": "target001", "status": "processing"}}],
+      "expected": {"status": "IN_PROGRESS"}
+    },
+    {
+      "name": "parse success response",
+      "hook": "parseTaskResult",
+      "args": [
+        {},
+        {
+          "code": "1",
+          "message": "success",
+          "task": {"task_id": "target001", "status": "succeeded", "url": "https://cdn.example/video.mp4"}
+        }
+      ],
+      "expected": {"status": "SUCCESS", "progress": "100%", "url": "https://cdn.example/video.mp4"}
+    },
+    {
+      "name": "list completed video artifact",
+      "hook": "listArtifacts",
+      "args": [
+        {"status": "SUCCESS", "data": {"task": {"status": "succeeded", "url": "https://cdn.example/video.mp4"}}}
+      ],
+      "expected": [{"key": "video", "type": "video", "mimeType": "video/mp4"}]
+    },
+    {
+      "name": "build video content request",
+      "hook": "buildContentRequest",
+      "args": [
+        {
+          "artifactKey": "video",
+          "data": {"task": {"status": "succeeded", "url": "https://cdn.example/video.mp4"}},
+          "clientRequest": {"method": "GET", "headers": {}}
+        }
+      ],
+      "expected": {"url": "https://cdn.example/video.mp4", "method": "GET", "credentialless": true}
+    },
+    {
+      "name": "reject invalid ratio",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [
+        {
+          "model": "custom-video-30s",
+          "body": {"kind": "json", "value": {"prompt": "test", "ratio": "2:1", "seconds": "30"}}
+        }
+      ],
+      "expectedError": "unsupported ratio"
+    }
+  ]
+}

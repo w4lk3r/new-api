@@ -29,6 +29,25 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
+export interface AffiliatePage<T> {
+  page: number
+  page_size: number
+  total: number
+  items: T[]
+}
+
+export interface AffiliateInvitedUser {
+  invitee: string
+  registered_date: string
+}
+
+export interface AffiliateRewardRecord {
+  type: 'signup' | 'recharge'
+  invitee: string
+  reward_quota: number
+  reward_date: string
+}
+
 /**
  * Standard API response types
  */

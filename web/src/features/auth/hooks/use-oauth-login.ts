@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import axios from 'axios'
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -93,8 +94,15 @@ export function useOAuthLogin(
 
       const url = buildGitHubOAuthUrl(status.github_client_id, state)
       window.open(url, '_self')
-    } catch {
-      toast.error(t('Failed to start GitHub login'))
+    } catch (error) {
+      // OAuth state errors use the global handler; logout opts out of it.
+      if (
+        !axios.isAxiosError(error) ||
+        error.response?.status !== 429 ||
+        error.config?.skipErrorHandler
+      ) {
+        toast.error(t('Failed to start GitHub login'))
+      }
       if (githubTimeoutRef.current) {
         clearTimeout(githubTimeoutRef.current)
       }
@@ -114,8 +122,15 @@ export function useOAuthLogin(
 
       const url = buildDiscordOAuthUrl(status.discord_client_id, state)
       window.open(url, '_self')
-    } catch {
-      toast.error(t('Failed to start Discord login'))
+    } catch (error) {
+      // OAuth state errors use the global handler; logout opts out of it.
+      if (
+        !axios.isAxiosError(error) ||
+        error.response?.status !== 429 ||
+        error.config?.skipErrorHandler
+      ) {
+        toast.error(t('Failed to start Discord login'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -135,8 +150,15 @@ export function useOAuthLogin(
         state
       )
       window.open(url, '_self')
-    } catch {
-      toast.error(t('Failed to start OIDC login'))
+    } catch (error) {
+      // OAuth state errors use the global handler; logout opts out of it.
+      if (
+        !axios.isAxiosError(error) ||
+        error.response?.status !== 429 ||
+        error.config?.skipErrorHandler
+      ) {
+        toast.error(t('Failed to start OIDC login'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -152,8 +174,15 @@ export function useOAuthLogin(
 
       const url = buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
       window.open(url, '_self')
-    } catch {
-      toast.error(t('Failed to start LinuxDO login'))
+    } catch (error) {
+      // OAuth state errors use the global handler; logout opts out of it.
+      if (
+        !axios.isAxiosError(error) ||
+        error.response?.status !== 429 ||
+        error.config?.skipErrorHandler
+      ) {
+        toast.error(t('Failed to start LinuxDO login'))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -222,10 +251,17 @@ export function useOAuthLogin(
       }
 
       window.open(url.toString(), '_self')
-    } catch {
-      toast.error(
-        t('Failed to start {{provider}} login', { provider: provider.name })
-      )
+    } catch (error) {
+      // OAuth state errors use the global handler; logout opts out of it.
+      if (
+        !axios.isAxiosError(error) ||
+        error.response?.status !== 429 ||
+        error.config?.skipErrorHandler
+      ) {
+        toast.error(
+          t('Failed to start {{provider}} login', { provider: provider.name })
+        )
+      }
     } finally {
       setIsLoading(false)
     }

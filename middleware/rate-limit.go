@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -140,7 +141,10 @@ func writeRateLimited(c *gin.Context, retryAfterSeconds int64) {
 	if retryAfterSeconds > 0 {
 		c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
 	}
-	c.Status(http.StatusTooManyRequests)
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"success": false,
+		"message": common.TranslateMessage(c, i18n.MsgRetryLater),
+	})
 	c.Abort()
 }
 
