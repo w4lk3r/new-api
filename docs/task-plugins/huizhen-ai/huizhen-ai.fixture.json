@@ -1,0 +1,133 @@
+{
+  "unixNow": 1788667200,
+  "cases": [
+    {
+      "name": "decode text request with model defaults",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"seedance-2.0","body":{"kind":"json","value":{"model":"seedance-2.0","prompt":"morning city"}}}],
+      "expected": {"kind":"submit","model":"seedance-2.0","action":"text_to_video","requestBody":{"model":"seedance-2.0","prompt":"morning city","duration":15,"resolution":"720p"}}
+    },
+    {
+      "name": "decode reference request and aliases",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"seedance-2.0-mini-2","body":{"kind":"json","value":{"prompt":"reference scene","seconds":12,"resolution":"480p","ratio":"16:9","image_refs":["https://assets.example/a.png"],"video_refs":[],"audio_refs":[],"compliance_enabled":false}}}],
+      "expected": {"kind":"submit","model":"seedance-2.0-mini-2","action":"image_to_video","requestBody":{"model":"seedance-2.0-mini-2","prompt":"reference scene","duration":12,"resolution":"480p","aspect_ratio":"16:9","image_refs":["https://assets.example/a.png"],"compliance_enabled":false}}
+    },
+    {
+      "name": "decode exact Chinese model identifier",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"sd2.0满血","body":{"kind":"json","value":{"prompt":"cinematic scene","duration":15,"resolution":"720p"}}}],
+      "expected": {"kind":"submit","model":"sd2.0满血","action":"text_to_video","requestBody":{"model":"sd2.0满血","prompt":"cinematic scene","duration":15,"resolution":"720p"}}
+    },
+    {
+      "name": "reject unsupported duration",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"sd2.5","body":{"kind":"json","value":{"prompt":"x","duration":15,"resolution":"720p"}}}],
+      "expectedError": "duration is not supported"
+    },
+    {
+      "name": "reject non-public reference",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"seedance-2.0","body":{"kind":"json","value":{"prompt":"x","image_refs":["file:///tmp/a.png"]}}}],
+      "expectedError": "public HTTP(S) URLs"
+    },
+    {
+      "name": "reject conflicting duration aliases",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"seedance-2.0","body":{"kind":"json","value":{"prompt":"x","duration":10,"seconds":15}}}],
+      "expectedError": "duration and seconds must be consistent"
+    },
+    {
+      "name": "reject inconsistent size and resolution",
+      "hook": "protocols",
+      "path": ["openai_video", "decodeRequest"],
+      "args": [{"model":"seedance-2.0-mini-2","body":{"kind":"json","value":{"prompt":"x","resolution":"720p","size":"864x480"}}}],
+      "expectedError": "resolution and size must be consistent"
+    },
+    {
+      "name": "build submit request",
+      "hook": "buildSubmitRequest",
+      "args": [{"baseUrl":"https://hz.example/","apiKey":"sk-hz-secret","model":"seedance-2.0","upstreamModel":"seedance-2.0","requestBody":{"model":"seedance-2.0","prompt":"morning city","duration":10,"resolution":"720p","aspect_ratio":"16:9"}}],
+      "expected": {"url":"https://hz.example/openapi/v1/videos","method":"POST","headers":{"Authorization":"Bearer sk-hz-secret","Accept":"application/json","Content-Type":"application/json"},"body":{"model":"seedance-2.0","prompt":"morning city","duration":10,"resolution":"720p","aspect_ratio":"16:9"}}
+    },
+    {
+      "name": "parse accepted task",
+      "hook": "parseSubmitResponse",
+      "args": [{},{"statusCode":202,"body":{"id":"video-123","object":"video","status":"queued","progress":0,"metadata":{"points_charged":20,"points_refunded":0}}}],
+      "expected": {"taskId":"video-123","taskData":{"id":"video-123","object":"video","status":"queued","progress":0,"metadata":{"points_charged":20,"points_refunded":0}}}
+    },
+    {
+      "name": "reject failed submission",
+      "hook": "parseSubmitResponse",
+      "args": [{},{"statusCode":400,"body":{"error":{"message":"invalid duration"}}}],
+      "expectedError": "invalid duration"
+    },
+    {
+      "name": "build query request",
+      "hook": "buildQueryRequest",
+      "args": [{"baseUrl":"https://hz.example/","apiKey":"sk-hz-secret","taskId":"video/123"}],
+      "expected": {"url":"https://hz.example/openapi/v1/videos/video%2F123","method":"GET","headers":{"Authorization":"Bearer sk-hz-secret","Accept":"application/json"}}
+    },
+    {
+      "name": "map processing status",
+      "hook": "parseTaskResult",
+      "args": [{},{"id":"video-123","status":"in_progress","progress":45}],
+      "expected": {"status":"IN_PROGRESS","progress":"45%"}
+    },
+    {
+      "name": "map failed status and reason",
+      "hook": "parseTaskResult",
+      "args": [{},{"id":"video-123","status":"failed","progress":100,"error":{"code":"video_generation_failed","message":"provider failed"}}],
+      "expected": {"status":"FAILURE","progress":"100%","reason":"provider failed"}
+    },
+    {
+      "name": "unknown statuses stay unknown",
+      "hook": "parseTaskResult",
+      "args": [{},{"id":"video-123","status":"paused"}],
+      "expected": {"status":"UNKNOWN","reason":"unrecognized task status: paused"}
+    },
+    {
+      "name": "list completed video artifact",
+      "hook": "listArtifacts",
+      "args": [{"status":"SUCCESS"}],
+      "expected": [{"key":"video","type":"video","mimeType":"video/mp4"}]
+    },
+    {
+      "name": "build authenticated ranged content request",
+      "hook": "buildContentRequest",
+      "args": [{"artifactKey":"video","upstreamTaskId":"video/123","baseUrl":"https://hz.example/","apiKey":"sk-hz-secret","clientRequest":{"method":"GET","headers":{"Range":"bytes=0-1023","If-Range":"etag-value"}}}],
+      "expected": {"url":"https://hz.example/openapi/v1/videos/video%2F123/content","method":"GET","headers":{"Authorization":"Bearer sk-hz-secret","Range":"bytes=0-1023","If-Range":"etag-value"}}
+    },
+    {
+      "name": "extract request billing facts",
+      "hook": "extractUsage",
+      "args": [{"usagePurpose":"facts","model":"seedance-2.0-mini-2","upstreamModel":"seedance-2.0-mini-2","requestBody":{"prompt":"x","duration":12,"resolution":"480p"}}],
+      "expected": {"seconds":12,"resolution":"480p"}
+    },
+    {
+      "name": "do not apply usage facts as legacy multipliers",
+      "hook": "extractUsage",
+      "args": [{"usagePurpose":"billing_ratios","model":"seedance-2.0","upstreamModel":"seedance-2.0","requestBody":{"prompt":"x","duration":10,"resolution":"720p"}}],
+      "expected": null
+    },
+    {
+      "name": "extract completed billing facts",
+      "hook": "extractUsageOnComplete",
+      "args": [{},{},{"seconds":"10","size":"1280x720"}],
+      "expected": {"seconds":10,"resolution":"720p"}
+    },
+    {
+      "name": "render failure without upstream id",
+      "hook": "protocols",
+      "path": ["openai_video", "render"],
+      "args": [{},{"task_id":"task_public","status":"FAILURE","progress":"100%","fail_reason":"provider failed","created_at":100,"updated_at":200,"properties":{"origin_model_name":"seedance-2.0"},"data":{"id":"video-private"}}],
+      "expected": {"id":"task_public","object":"video","model":"seedance-2.0","status":"failed","progress":100,"created_at":100,"completed_at":200,"error":{"code":"video_generation_failed","message":"provider failed"}}
+    }
+  ]
+}
