@@ -183,6 +183,7 @@ func runCustomVideoLifecycle(t *testing.T, format string) {
 				}
 			}
 			uploads <- seen
+			w.WriteHeader(http.StatusAccepted)
 			_, _ = fmt.Fprintf(w, `{"code":"1","task_id":"private-%d","status":"queued"}`, index)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/videos/private-"):
 			queryCalls.Add(1)
