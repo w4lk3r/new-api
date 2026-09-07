@@ -1,5 +1,22 @@
 # 官方 rc.31 合并与视频插件验证
 
+> **文档状态：历史验证记录。** 本文保留 2026-09-04 合并官方 rc.31 时的原始
+> 判断和测试证据。此后 multipart 创建和 HTTP 202 异步创建已经修复，并完成了
+> 绘帧AI Task Plugin 接入。当前结论、配置和待验收项以
+> [`video-task-plugin-architecture.md`](./video-task-plugin-architecture.md) 为准。
+
+## 后续进展（2026-09-07）
+
+- `e2c74bf4` 修复插件生成 multipart 请求时的 boundary/Content-Type 透传；
+- `4120a8ee` 允许所有成功 `2xx` 异步创建响应进入插件解析，解决上游返回
+  `202 Accepted` 时宿主误报 `fail_to_fetch_task` 的问题；
+- 已新增绘帧AI `huizhen-ai` 和 Custom Video `custom-video 1.0.1` 插件；
+- 绘帧AI真实创建已返回 `queued` 并报告扣除 8 积分，但真实完成、下载和失败
+  退款仍需验收；
+- 当前 Fork 镜像版本为 `v1.0.0-rc.31-video-fix.2`；
+- 旧私有视频三提交仍未合入。当前采用官方 `Task Plugin = 61`，不再占用与官方
+  `Sub2API = 59` 冲突的私有渠道编号。
+
 ## 分支与范围
 
 - 升级分支：`codex/upstream-sync`。

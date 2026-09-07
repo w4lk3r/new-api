@@ -5,6 +5,12 @@ artifacts. They are test inputs, not installed production plugins. The IP addres
 and placeholder token inside the fixture are compared as strings only; the tests
 never contact that address or use a real upstream credential.
 
+The admin-installable `custom-video` plugin is maintained separately at
+[`docs/task-plugins/custom-video`](../../../docs/task-plugins/custom-video/README.md).
+Its current version is `1.0.1` and it adds a validated `calls=1` usage fact for
+fixed per-request billing. Do not replace the immutable test fixture below with
+that production plugin.
+
 | File | SHA-256 |
 | --- | --- |
 | `custom-video.plugin.js` | `97b1c7be28e3e54179db2c0754e814a44e5e6214809b342c6c983c727e062fc9` |
