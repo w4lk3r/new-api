@@ -1,19 +1,12 @@
 name: Publish Docker image (Multi-arch)
 
 on:
-  push:
-    tags:
-      - '*'
-      - '!nightly*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag name to build (e.g., v0.10.8-alpha.3)'
-        required: true
-        type: string
 
 jobs:
   build_single_arch:
+    # This fork publishes images through publish-ghcr.yml.
+    if: ${{ false }}
     name: Build & push (${{ matrix.arch }})
     strategy:
       fail-fast: false
